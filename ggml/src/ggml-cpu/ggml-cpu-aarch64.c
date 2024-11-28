@@ -549,17 +549,17 @@ void ggml_gemv_q4_0_4x4_q8_0(int n, float * restrict s, size_t bs, const void * 
 
                 int32x4_t ret = vdupq_n_s32(0);
 
-                ret = vdotq_laneq_s32(ret, b0 << 4, a0, 0);
-                ret = vdotq_laneq_s32(ret, b1 << 4, a0, 1);
-                ret = vdotq_laneq_s32(ret, b2 << 4, a0, 2);
-                ret = vdotq_laneq_s32(ret, b3 << 4, a0, 3);
+                ret = vdotq_laneq_s32(ret, b0 >> 4, a0, 0);
+                ret = vdotq_laneq_s32(ret, b1 >> 4, a0, 1);
+                ret = vdotq_laneq_s32(ret, b2 >> 4, a0, 2);
+                ret = vdotq_laneq_s32(ret, b3 >> 4, a0, 3);
 
-                ret = vdotq_laneq_s32(ret, b0 & 0xf0U, a1, 0);
-                ret = vdotq_laneq_s32(ret, b1 & 0xf0U, a1, 1);
-                ret = vdotq_laneq_s32(ret, b2 & 0xf0U, a1, 2);
-                ret = vdotq_laneq_s32(ret, b3 & 0xf0U, a1, 3);
+                ret = vdotq_laneq_s32(ret, b0 & 0xfU, a1, 0);
+                ret = vdotq_laneq_s32(ret, b1 & 0xfU, a1, 1);
+                ret = vdotq_laneq_s32(ret, b2 & 0xfU, a1, 2);
+                ret = vdotq_laneq_s32(ret, b3 & 0xfU, a1, 3);
 
-                acc = vfmaq_f32(acc, vcvtq_n_f32_s32(ret, 4),
+                acc = vfmaq_f32(acc, vcvtq_f32_s32(ret),
                                 vmulq_f32(vcvt_f32_f16(ad), vcvt_f32_f16(bd)));
                 a_ptr++;
                 b_ptr++;
