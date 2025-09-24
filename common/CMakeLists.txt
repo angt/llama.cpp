@@ -90,12 +90,29 @@ if (LLAMA_CURL)
 else()
     find_package(OpenSSL)
     if (OpenSSL_FOUND)
-        message(STATUS "OpenSSL found: ${OPENSSL_VERSION}")
-        target_compile_definitions(${TARGET} PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
-        target_link_libraries(${TARGET} PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-        if (APPLE)
-            target_compile_definitions(${TARGET} PUBLIC CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN)
-            target_link_libraries(${TARGET} PUBLIC "-framework Security")
+        include(CheckCSourceCompiles)
+        set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIR})
+        check_c_source_compiles("
+        #include <openssl/opensslv.h>
+        #if defined(OPENSSL_IS_BORINGSSL) || defined(LIBRESSL_VERSION_NUMBER)
+        #    if OPENSSL_VERSION_NUMBER < 0x1010107f
+        #        error bad version
+        #    endif
+        #else
+        #    if OPENSSL_VERSION_NUMBER < 0x30000000L
+        #        error bad version
+        #    endif
+        #endif
+        int main() { return 0; }
+        " OPENSSL_VERSION_SUPPORTED)
+        if (OPENSSL_VERSION_SUPPORTED)
+            message(STATUS "OpenSSL found: ${OPENSSL_VERSION}")
+            target_compile_definitions(${TARGET} PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
+            target_link_libraries(${TARGET} PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+            if (APPLE)
+                target_compile_definitions(${TARGET} PUBLIC CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN)
+                target_link_libraries(${TARGET} PUBLIC "-framework Security")
+            endif()
         endif()
     else()
         message(STATUS "OpenSSL not found, SSL support disabled")
