@@ -1660,7 +1660,6 @@ jobs:
             build-essential \
             libcurl4-openssl-dev \
             python3-venv \
-            gpg \
             wget \
             time \
             git-lfs
@@ -1670,9 +1669,8 @@ jobs:
            # install the latest cmake
            sudo install -d /usr/share/keyrings
            wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc \
-            | gpg --dearmor \
-            | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
-           echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' \
+            | sudo tee /usr/share/keyrings/kitware-archive-keyring.asc >/dev/null
+           echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.asc] https://apt.kitware.com/ubuntu/ jammy main' \
             | sudo tee /etc/apt/sources.list.d/kitware.list
            sudo apt-get update
            sudo apt-get install -y cmake
