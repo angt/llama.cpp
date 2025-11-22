@@ -354,7 +354,7 @@ jobs:
       - name: Build
         id: cmake_build
         run: |
-          cmake -B build -DLLAMA_CURL=OFF -DLLAMA_BUILD_BORINGSSL=ON
+          cmake -B build -DLLAMA_CURL=OFF
           cmake --build build --config Release -j ${env:NUMBER_OF_PROCESSORS} --target llama-server
 
       - name: Python setup
