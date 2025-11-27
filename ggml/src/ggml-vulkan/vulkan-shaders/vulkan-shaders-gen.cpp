@@ -418,10 +418,14 @@ void string_to_spv(std::string name, const std::string& source, const std::map<s
     }
 
     compile_count_guard slot = acquire_compile_slot();
-    compiles.push_back(std::async(
-        string_to_spv_func, name, input_filepath, out_path, defines, coopmat, generate_dep_file, std::move(slot)));
-    // Don't write the same dep file from multiple processes
-    generate_dep_file = false;
+    if (generate_dep_file) {
+        generate_dep_file = false;
+        // Run synchronously to ensure .d file is flushed to disk before CMake checks it.
+        string_to_spv_func(name, input_filepath, out_path, defines, coopmat, true, std::move(slot));
+    } else {
+        compiles.push_back(std::async(
+            string_to_spv_func, name, input_filepath, out_path, defines, coopmat, generate_dep_file, std::move(slot)));
+    }
 }
 
 void matmul_shaders(bool fp16, MatMulIdType matmul_id_type, bool coopmat, bool coopmat2, bool f16acc) {
