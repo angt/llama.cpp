@@ -692,6 +692,62 @@ bool string_parse_kv_override(const char * data, std::vector<llama_model_kv_over
 // Filesystem utils
 //
 
+// Simple strict UTF-8 decoding to avoid deprecated std::codecvt
+// Returns false on invalid UTF-8
+static bool utf8_to_utf32(const std::string & src, std::u32string & dst) {
+    dst.clear();
+    dst.reserve(src.size());
+
+    const char * p = src.data();
+    const char * end = p + src.size();
+
+    while (p < end) {
+        unsigned char c = *p;
+        uint32_t codepoint = 0;
+        int bytes = 0;
+
+        if (c < 0x80) {
+            codepoint = c;
+            bytes = 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            codepoint = c & 0x1F;
+            bytes = 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            codepoint = c & 0x0F;
+            bytes = 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            codepoint = c & 0x07;
+            bytes = 4;
+        } else {
+            return false; // Invalid start byte
+        }
+
+        if (p + bytes > end) {
+            return false; // Truncated
+        }
+
+        // Check continuation bytes
+        for (int i = 1; i < bytes; ++i) {
+            if ((static_cast<unsigned char>(p[i]) & 0xC0) != 0x80) {
+                return false;
+            }
+            codepoint = (codepoint << 6) | (static_cast<unsigned char>(p[i]) & 0x3F);
+        }
+
+        if ((bytes == 2 && codepoint < 0x80) ||
+            (bytes == 3 && codepoint < 0x800) ||
+            (bytes == 4 && codepoint < 0x10000) ||
+            (codepoint >= 0xD800 && codepoint <= 0xDFFF) ||
+            (codepoint > 0x10FFFF)) {
+            return false;
+        }
+
+        dst.push_back(codepoint);
+        p += bytes;
+    }
+    return true;
+}
+
 // Validate if a filename is safe to use
 // To validate a full path, split the path by the OS-specific path separator, and validate each part with this function
 bool fs_validate_filename(const std::string & filename, bool allow_subdirs) {
@@ -707,34 +763,8 @@ bool fs_validate_filename(const std::string & filename, bool allow_subdirs) {
     }
 
     std::u32string filename_utf32;
-    try {
-#if defined(__clang__)
-        // disable C++17 deprecation warning for std::codecvt_utf8
-#    pragma clang diagnostic push
-#    pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#elif defined(__GNUC__)
-#    pragma GCC diagnostic push
-#    pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-
-        std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
-
-#if defined(__clang__)
-#    pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#    pragma GCC diagnostic pop
-#endif
-
-        filename_utf32 = converter.from_bytes(filename);
-
-        // If the reverse conversion mismatches, it means overlong UTF-8 sequences were used,
-        // or invalid encodings were encountered. Reject such attempts
-        std::string filename_reencoded = converter.to_bytes(filename_utf32);
-        if (filename_reencoded != filename) {
-            return false;
-        }
-    } catch (const std::exception &) {
-        return false;
+    if (!utf8_to_utf32(filename, filename_utf32)) {
+        return false; // Invalid UTF-8
     }
 
     // Check for forbidden codepoints:
