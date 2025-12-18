@@ -60,6 +60,10 @@
 #include "ggml-cuda/fill.cuh"
 #include "ggml.h"
 
+#ifdef GGML_CUDA_FORCE_CUTLASS
+#include "ggml-cuda/cutlass.cuh"
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -81,6 +85,8 @@
 #include <vector>
 
 static_assert(sizeof(half) == sizeof(ggml_fp16_t), "wrong fp16 size");
+
+
 
 [[noreturn]]
 void ggml_cuda_error(const char * stmt, const char * func, const char * file, int line, const char * msg) {
@@ -1224,6 +1230,74 @@ static cudaError_t ggml_cuda_cpy_tensor_2d(
     }
 }
 
+#ifdef GGML_CUDA_FORCE_CUTLASS
+static void ggml_cuda_op_mul_mat_cutlass(
+    ggml_backend_cuda_context & ctx,
+    const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst,
+    const char * src0_dd_i, const float * src1_ddf_i,
+    const char * src1_ddq_i, float * dst_dd_i,
+    const int64_t row_low, const int64_t row_high, const int64_t src1_ncols,
+    const int64_t src1_padded_row_size, cudaStream_t stream) {
+
+    const int64_t m = row_high - row_low;
+    const int64_t n = src1_ncols;
+    const int64_t k = src0->ne[0];
+
+    int id = ggml_cuda_get_device();
+
+    ggml_cuda_pool_alloc<nv_bfloat16> src0_as_bf16(ctx.pool(id));
+    const nv_bfloat16 * src0_ptr = nullptr;
+
+    if (src0->type == GGML_TYPE_BF16) {
+        src0_ptr = (const nv_bfloat16 *)src0_dd_i;
+    } else {
+        const to_bf16_cuda_t to_bf16_cuda = ggml_get_to_bf16_cuda(src0->type);
+        GGML_ASSERT(to_bf16_cuda != nullptr);
+
+        size_t ne = m * k;
+        src0_as_bf16.alloc(ne);
+        to_bf16_cuda(src0_dd_i, src0_as_bf16.get(), ne, stream);
+        src0_ptr = src0_as_bf16.get();
+    }
+
+    ggml_cuda_pool_alloc<nv_bfloat16> src1_as_bf16(ctx.pool(id));
+    const nv_bfloat16 * src1_ptr = nullptr;
+
+    if (src1->type == GGML_TYPE_BF16) {
+        src1_ptr = (const nv_bfloat16 *)src1_ddf_i;
+    } else {
+        const to_bf16_cuda_t to_bf16_cuda = ggml_get_to_bf16_cuda(src1->type);
+        GGML_ASSERT(to_bf16_cuda != nullptr);
+
+        size_t ne = n * k;
+        src1_as_bf16.alloc(ne);
+        to_bf16_cuda(src1_ddf_i, src1_as_bf16.get(), ne, stream);
+        src1_ptr = src1_as_bf16.get();
+    }
+
+    int lda = k;
+    int ldb = k;
+    int ldc = (id == ctx.device) ? dst->ne[0] : m;
+
+    int status = launch_cutlass_gemm(
+        (int)m, (int)n, (int)k,
+        1.0f, // alpha
+        (const void*)src0_ptr, lda,
+        (const void*)src1_ptr, ldb,
+        0.0f, // beta (overwrite)
+        (void*)dst_dd_i, ldc,
+        stream
+    );
+
+    if (status != 0) {
+        ggml_cuda_error("launch_cutlass_gemm failed", __func__, __FILE__, __LINE__, "CUTLASS error");
+    }
+
+    GGML_UNUSED(src1_ddq_i);
+    GGML_UNUSED(src1_padded_row_size);
+}
+#endif
+
 static void ggml_cuda_op_mul_mat_cublas(
     ggml_backend_cuda_context & ctx,
     const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst, const char * src0_dd_i, const float * src1_ddf_i,
@@ -2238,6 +2312,14 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
     bool use_batched_cublas_f16  = src0->type == GGML_TYPE_F16 && (src1->type == GGML_TYPE_F16 || !any_gpus_with_slow_fp16);
     bool use_batched_cublas_bf16 = src0->type == GGML_TYPE_BF16 && bf16_mma_hardware_available(cc);
     bool use_batched_cublas_f32  = src0->type == GGML_TYPE_F32;
+
+#ifdef GGML_CUDA_FORCE_CUTLASS
+    if (!split && !ggml_is_transposed(src0) && !ggml_is_transposed(src1)) {
+        printf("=== CUTLASS here ===\n");
+        ggml_cuda_op_mul_mat(ctx, src0, src1, dst, ggml_cuda_op_mul_mat_cutlass, nullptr);
+        return;
+    }
+#endif
 
     if (!split && use_mul_mat_vec_f) {
         // the custom F16 vector kernel can be used over batched cuBLAS GEMM

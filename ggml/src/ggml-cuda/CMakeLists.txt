@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.18)  # for CMAKE_CUDA_ARCHITECTURES
 
+add_compile_definitions(GGML_CUDA_FORCE_CUTLASS)
+add_compile_definitions(CUTLASS_TARGET_ARCH=120)
+include_directories("${CUTLASS_PATH}")
+message(STATUS "CUTLASS include path: ${CUTLASS_PATH}")
+
 find_package(CUDAToolkit)
 
 if (CUDAToolkit_FOUND)
