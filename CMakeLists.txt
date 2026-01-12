@@ -141,6 +141,21 @@ if (NOT DEFINED GGML_CUDA_GRAPHS)
     set(GGML_CUDA_GRAPHS_DEFAULT ON)
 endif()
 
+# model download helper
+function(llama_dl_model NAME)
+    set(DEST "${CMAKE_BINARY_DIR}/${NAME}")
+    if(NOT EXISTS "${DEST}")
+        include(FetchContent)
+        message(STATUS "Downloading ${NAME} from ggml-org/models...")
+        file(DOWNLOAD
+            "https://huggingface.co/ggml-org/models/resolve/main/${NAME}?download=true"
+            "${DEST}"
+            TLS_VERIFY ON
+        )
+    endif()
+    set(LLAMA_DL_MODEL "${DEST}" PARENT_SCOPE)
+endfunction()
+
 # transition helpers
 function (llama_option_depr TYPE OLD NEW)
     if (${OLD})
