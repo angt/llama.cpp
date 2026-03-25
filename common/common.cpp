@@ -361,6 +361,11 @@ bool parse_cpu_mask(const std::string & mask, bool (&boolmask)[GGML_MAX_N_THREAD
 void common_init() {
     llama_log_set(common_log_default_callback, NULL);
 
+#if defined(_WIN32)
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+
 #ifdef NDEBUG
     const char * build_type = "";
 #else
