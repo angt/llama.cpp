@@ -110,6 +110,14 @@ bool server_http_context::init(const common_params & params) {
     // set timeouts and change hostname and port
     srv->set_read_timeout (params.timeout_read);
     srv->set_write_timeout(params.timeout_write);
+    srv->set_socket_options([](socket_t sock) {
+#ifdef _WIN32
+        const char opt = 1;
+#else
+        int opt = 1;
+#endif
+        setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    });
 
     if (params.api_keys.size() == 1) {
         auto key = params.api_keys[0];
