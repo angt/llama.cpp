@@ -29,8 +29,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     int n_junk = params.n_junk;
     int n_keep = params.n_keep;
     int n_grp  = params.grp_attn_n;

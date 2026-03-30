@@ -23,8 +23,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     // init LLM
 
     llama_backend_init();

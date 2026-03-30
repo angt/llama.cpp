@@ -357,8 +357,6 @@ int main(int argc, char ** argv) {
         console::error("please use llama-completion instead\n");
     }
 
-    common_init();
-
     // struct that contains llama context and inference
     cli_context ctx_cli(params);
 

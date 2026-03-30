@@ -285,7 +285,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
     mtmd_helper_log_set(common_log_default_callback, nullptr);
 
     if (params.mmproj.path.empty()) {

@@ -24,8 +24,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     int is_pp_shared   = params.is_pp_shared;
     int is_tg_separate = params.is_tg_separate;
 

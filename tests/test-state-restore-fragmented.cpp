@@ -26,8 +26,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     // init
     common_init_result_ptr llama_init = common_init_from_params(params);
 

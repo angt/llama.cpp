@@ -27,8 +27,6 @@ int main(int argc, char ** argv) {
         params.kv_unified = true;
     }
 
-    common_init();
-
     if (params.n_predict < 0) {
         params.n_predict = 16;
     }

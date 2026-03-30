@@ -103,8 +103,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     params.embedding = true;
 
     // get max number of sequences per batch

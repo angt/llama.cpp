@@ -167,8 +167,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     // number of simultaneous "clients" to simulate
     const int32_t n_clients = params.n_parallel;
 

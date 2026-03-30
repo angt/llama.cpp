@@ -122,8 +122,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     // Load CPU-only
     ggml_backend_dev_t cpu_device = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
     params.devices = { cpu_device, nullptr };

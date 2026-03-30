@@ -558,8 +558,6 @@ int main(int argc, char ** argv) {
     const int n_parallel = params.n_parallel;
     const int n_predict  = params.n_predict;
 
-    common_init();
-
     // init LLM
 
     llama_backend_init();

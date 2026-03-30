@@ -28,8 +28,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     // number of parallel batches
     int n_parallel = params.n_parallel;
 

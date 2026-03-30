@@ -876,6 +876,8 @@ bool common_params_to_map(int argc, char ** argv, llama_example ex, std::map<com
 }
 
 bool common_params_parse(int argc, char ** argv, common_params & params, llama_example ex, void(*print_usage)(int, char **)) {
+    common_init();
+
     auto ctx_arg = common_params_parser_init(params, ex, print_usage);
     const common_params params_org = ctx_arg.params; // the example can modify the default params
 

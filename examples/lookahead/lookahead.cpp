@@ -47,8 +47,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     const int W = 15; // lookahead window
     const int N = 5;  // n-gram size
     const int G = 15; // max verification n-grams

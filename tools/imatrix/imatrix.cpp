@@ -1223,8 +1223,6 @@ int main(int argc, char ** argv) {
         return 0;
     }
 
-    common_init();
-
     const int32_t n_ctx = params.n_ctx;
 
     if (n_ctx <= 0) {

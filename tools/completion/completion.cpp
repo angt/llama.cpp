@@ -94,8 +94,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     auto & sparams = params.sampling;
 
     // save choice to use color for later

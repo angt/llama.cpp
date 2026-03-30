@@ -100,8 +100,6 @@ int main(int argc, char ** argv) {
         params.model_alias.insert(params.model.name);
     }
 
-    common_init();
-
     // struct that contains llama context and inference
     server_context ctx_server;
 

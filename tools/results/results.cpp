@@ -65,7 +65,6 @@ int main(int argc, char ** argv) {
         LOG_ERR("%s: an output file must be specified", __func__);
         return 1;
     }
-    common_init();
     llama_backend_init();
     llama_numa_init(params.numa);
     common_init_result_ptr llama_init = common_init_from_params(params);

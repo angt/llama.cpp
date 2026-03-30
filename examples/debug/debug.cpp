@@ -217,8 +217,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
-
     llama_backend_init();
     llama_numa_init(params.numa);
 

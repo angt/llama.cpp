@@ -22,8 +22,6 @@ int main(int argc, char ** argv){
         return 1;
     }
 
-    common_init();
-
     const int n_draft = params.speculative.n_max;
 
     // init llama.cpp

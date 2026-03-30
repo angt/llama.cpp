@@ -549,7 +549,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    common_init();
     llama_backend_init();
 
     llama_model_params model_params = llama_model_default_params();
