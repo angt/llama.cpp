@@ -463,10 +463,6 @@ struct gguf_split_info {
 };
 
 static gguf_split_info get_gguf_split_info(const std::string & path) {
-    static const std::regex re_split("^(.+)-([0-9]{5})-of-([0-9]{5})$", std::regex::icase);
-    static const std::regex re_tag("[-.]([A-Z0-9_]+)$", std::regex::icase);
-    std::smatch m;
-
     std::string prefix = path;
     if (!string_remove_suffix(prefix, ".gguf")) {
         return {};
@@ -475,15 +471,34 @@ static gguf_split_info get_gguf_split_info(const std::string & path) {
     int index = 1;
     int count = 1;
 
-    if (std::regex_match(prefix, m, re_split)) {
-        index = std::stoi(m[2].str());
-        count = std::stoi(m[3].str());
-        prefix = m[1].str();
+    // Parse "-NNNNN-of-NNNNN" suffix
+    if (prefix.size() > 15) {
+        auto of_pos = prefix.size() - 9;  // -of-
+        auto dash_pos = of_pos - 6;       // first -
+        if (prefix.substr(of_pos, 4) == "-of-" && prefix[dash_pos] == '-') {
+            auto idx = prefix.substr(dash_pos + 1, 5);
+            auto cnt = prefix.substr(of_pos + 4, 5);
+            size_t idx_end = 0, cnt_end = 0;
+            try {
+                index = std::stoi(idx, &idx_end);
+                count = std::stoi(cnt, &cnt_end);
+                if (idx_end == 5 && cnt_end == 5) {
+                    prefix = prefix.substr(0, dash_pos);
+                }
+            } catch (...) {}
+        }
     }
 
+    // Extract tag from last "-TAG" or ".TAG"
     std::string tag;
-    if (std::regex_search(prefix, m, re_tag)) {
-        tag = m[1].str();
+    auto it = std::find_if_not(prefix.rbegin(), prefix.rend(), [](char c) {
+        return (c >= '0' && c <= '9') ||
+               (c >= 'a' && c <= 'z') ||
+               (c >= 'A' && c <= 'Z') || c == '_';
+    });
+
+    if (it != prefix.rend() && it != prefix.rbegin() && (*it == '-' || *it == '.')) {
+        tag = std::string(it.base(), prefix.end());
         for (char & c : tag) {
             c = std::toupper((unsigned char)c);
         }
@@ -587,10 +602,12 @@ static hf_cache::hf_file find_best_model(const hf_cache::hf_files & files,
     }
 
     for (const auto & t : tags) {
-        std::regex pattern(t + "[.-]", std::regex::icase);
+        std::string t_dot = t + ".";
+        std::string t_dash = t + "-";
         for (const auto & f : files) {
             if (gguf_filename_is_model(f.path) &&
-                std::regex_search(f.path, pattern)) {
+                (f.path.find(t_dot) != std::string::npos ||
+                 f.path.find(t_dash) != std::string::npos)) {
                 return f;
             }
         }
