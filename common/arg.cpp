@@ -248,6 +248,7 @@ std::vector<std::string> common_arg::get_env() const {
 
 // Helper function to parse tensor buffer override strings
 static void parse_tensor_buffer_overrides(const std::string & value, std::vector<llama_model_tensor_buft_override> & overrides) {
+    ggml_backend_load_all();
     std::map<std::string, ggml_backend_buffer_type_t> buft_list;
     for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
         auto * dev = ggml_backend_dev_get(i);
@@ -795,6 +796,7 @@ static void common_params_print_completion(common_params_context & ctx_arg) {
 }
 
 static std::vector<ggml_backend_dev_t> parse_device_list(const std::string & value) {
+    ggml_backend_load_all();
     std::vector<ggml_backend_dev_t> devices;
     auto dev_names = string_split<std::string>(value, ',');
     if (dev_names.empty()) {
@@ -816,6 +818,7 @@ static std::vector<ggml_backend_dev_t> parse_device_list(const std::string & val
 }
 
 static void add_rpc_devices(const std::string & servers) {
+    ggml_backend_load_all();
     auto rpc_servers = string_split<std::string>(servers, ',');
     if (rpc_servers.empty()) {
         throw std::invalid_argument("no RPC servers specified");
@@ -1015,9 +1018,6 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     }
 
     params.use_color = tty_can_use_colors();
-
-    // load dynamic backends
-    ggml_backend_load_all();
 
     common_params_context ctx_arg(params);
     ctx_arg.print_usage = print_usage;
@@ -2275,6 +2275,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"--list-devices"},
         "print list of available devices and exit",
         [](common_params &) {
+            ggml_backend_load_all();
             std::vector<ggml_backend_dev_t> devices;
             for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
                 auto * dev = ggml_backend_dev_get(i);
@@ -4072,6 +4073,8 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.speculative.ngram_mod.n_max = 64;
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}));
+
+    ggml_backend_load_all();
 
     return ctx_arg;
 }
