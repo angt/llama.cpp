@@ -470,11 +470,8 @@ endforeach()
 
 target_link_libraries(ggml-base PRIVATE Threads::Threads)
 
-find_library(MATH_LIBRARY m)
-if (MATH_LIBRARY)
-    if (NOT WIN32 OR NOT DEFINED ENV{ONEAPI_ROOT})
-        target_link_libraries(ggml-base PRIVATE ${MATH_LIBRARY})
-    endif()
+if (NOT WIN32 OR NOT DEFINED ENV{ONEAPI_ROOT})
+    target_link_libraries(ggml-base PRIVATE m)
 endif()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Android")
