@@ -470,7 +470,7 @@ endforeach()
 
 target_link_libraries(ggml-base PRIVATE Threads::Threads)
 
-if (NOT WIN32 OR NOT DEFINED ENV{ONEAPI_ROOT})
+if (NOT WIN32 AND NOT DEFINED ENV{ONEAPI_ROOT})
     if (DEFINED MATH_LIBRARY)
         target_link_libraries(ggml-base PRIVATE ${MATH_LIBRARY})
     else()
