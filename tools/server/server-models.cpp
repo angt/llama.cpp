@@ -6,7 +6,7 @@
 #include "download.h"
 
 #include <cpp-httplib/httplib.h> // TODO: remove this once we use HTTP client from download.h
-#include <sheredom/subprocess.h>
+#include "child-process.h"
 
 #include <functional>
 #include <algorithm>
@@ -18,10 +18,8 @@
 #include <atomic>
 #include <chrono>
 #include <queue>
-#include <filesystem>
 #include <random>
 #include <sstream>
-#include <cstring>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -31,13 +29,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-extern char **environ;
-#endif
-
-#if defined(__APPLE__) && defined(__MACH__)
-// macOS: use _NSGetExecutablePath to get the executable path
-#include <mach-o/dyld.h>
-#include <limits.h>
 #endif
 
 #define DEFAULT_STOP_TIMEOUT 10 // seconds
@@ -50,47 +41,6 @@ extern char **environ;
 // address for child process, this is needed because router may run on 0.0.0.0
 // ref: https://github.com/ggml-org/llama.cpp/issues/17862
 #define CHILD_ADDR "127.0.0.1"
-
-static std::filesystem::path get_server_exec_path() {
-#if defined(_WIN32)
-    wchar_t buf[32768] = { 0 };  // Large buffer to handle long paths
-    DWORD len = GetModuleFileNameW(nullptr, buf, _countof(buf));
-    if (len == 0 || len >= _countof(buf)) {
-        throw std::runtime_error("GetModuleFileNameW failed or path too long");
-    }
-    return std::filesystem::path(buf);
-#elif defined(__APPLE__) && defined(__MACH__)
-    char small_path[PATH_MAX];
-    uint32_t size = sizeof(small_path);
-
-    if (_NSGetExecutablePath(small_path, &size) == 0) {
-        // resolve any symlinks to get absolute path
-        try {
-            return std::filesystem::canonical(std::filesystem::path(small_path));
-        } catch (...) {
-            return std::filesystem::path(small_path);
-        }
-    } else {
-        // buffer was too small, allocate required size and call again
-        std::vector<char> buf(size);
-        if (_NSGetExecutablePath(buf.data(), &size) == 0) {
-            try {
-                return std::filesystem::canonical(std::filesystem::path(buf.data()));
-            } catch (...) {
-                return std::filesystem::path(buf.data());
-            }
-        }
-        throw std::runtime_error("_NSGetExecutablePath failed after buffer resize");
-    }
-#else
-    char path[FILENAME_MAX];
-    ssize_t count = readlink("/proc/self/exe", path, FILENAME_MAX);
-    if (count <= 0) {
-        throw std::runtime_error("failed to resolve /proc/self/exe");
-    }
-    return std::filesystem::path(std::string(path, count));
-#endif
-}
 
 static void unset_reserved_args(common_preset & preset, bool unset_model_args) {
     preset.unset_option("LLAMA_ARG_SSL_KEY_FILE");
@@ -108,25 +58,6 @@ static void unset_reserved_args(common_preset & preset, bool unset_model_args) {
     }
 }
 
-#ifdef _WIN32
-static std::string wide_to_utf8(const wchar_t * ws) {
-    if (!ws || !*ws) {
-        return {};
-    }
-
-    const int len = static_cast<int>(std::wcslen(ws));
-    const int bytes = WideCharToMultiByte(CP_UTF8, 0, ws, len, nullptr, 0, nullptr, nullptr);
-    if (bytes == 0) {
-        return {};
-    }
-
-    std::string utf8(bytes, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, ws, len, utf8.data(), bytes, nullptr, nullptr);
-
-    return utf8;
-}
-#endif
-
 static std::vector<std::string> get_environment() {
     std::vector<std::string> env;
 
@@ -136,10 +67,18 @@ static std::vector<std::string> get_environment() {
         return env;
     }
     for (LPWCH e = env_block; *e; e += wcslen(e) + 1) {
-        env.emplace_back(wide_to_utf8(e));
+        // Convert wide string to UTF-8
+        const int len = static_cast<int>(std::wcslen(e));
+        const int bytes = WideCharToMultiByte(CP_UTF8, 0, e, len, nullptr, 0, nullptr, nullptr);
+        if (bytes > 0) {
+            std::string utf8(bytes, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, e, len, utf8.data(), bytes, nullptr, nullptr);
+            env.emplace_back(std::move(utf8));
+        }
     }
     FreeEnvironmentStringsW(env_block);
 #else
+    extern char **environ;
     if (environ == nullptr) {
         return env;
     }
@@ -151,20 +90,21 @@ static std::vector<std::string> get_environment() {
     return env;
 }
 
-void server_model_meta::update_args(common_preset_context & ctx_preset, std::string bin_path) {
+void server_model_meta::update_args(common_preset_context & ctx_preset, const std::string & exec_path) {
     // update params
     unset_reserved_args(preset, false);
     preset.set_option(ctx_preset, "LLAMA_ARG_HOST",  CHILD_ADDR);
     preset.set_option(ctx_preset, "LLAMA_ARG_PORT",  std::to_string(port));
     preset.set_option(ctx_preset, "LLAMA_ARG_ALIAS", name);
     // TODO: maybe validate preset before rendering ?
-    // render args
-    args = preset.to_args(bin_path);
+    // render args (prepend executable path as argv[0])
+    args = preset.to_args();
+    args.insert(args.begin(), exec_path);
 
     // unified binary dispatches by subcommand, re-inject it right after the
     // binary path so the child starts as 'llama serve ...' not 'llama ...'
     const char * app_cmd = std::getenv("LLAMA_APP_CMD");
-    if (app_cmd != nullptr && app_cmd[0] != '\0' && !bin_path.empty()) {
+    if (app_cmd != nullptr && app_cmd[0] != '\0') {
         args.insert(args.begin() + 1, app_cmd);
     }
 }
@@ -207,14 +147,9 @@ server_models::server_models(
               base_preset(ctx_preset.load_from_args(argc, argv)) {
     // clean up base preset
     unset_reserved_args(base_preset, true);
-    // set binary path
-    try {
-        bin_path = get_server_exec_path().string();
-    } catch (const std::exception & e) {
-        bin_path = argv[0];
-        LOG_WRN("failed to get server executable path: %s\n", e.what());
-        LOG_WRN("using original argv[0] as fallback: %s\n", argv[0]);
-    }
+    // get executable path from the environment (set by the unified binary dispatcher)
+    const char * env_argv0 = std::getenv("LLAMA_ARGV0");
+    self_argv0 = env_argv0 ? env_argv0 : argv[0];
     load_models();
 }
 
@@ -267,13 +202,13 @@ void server_models::add_model(server_model_meta && meta) {
         }
     }
 
-    meta.update_args(ctx_preset, bin_path); // render args
+    meta.update_args(ctx_preset, self_argv0); // render args
     meta.update_caps();
     std::string name = meta.name;
     mapping[name] = instance_t{
-        /* subproc */ std::make_shared<subprocess_s>(),
-        /* th      */ std::thread(),
-        /* meta    */ std::move(meta)
+        /* proc */ std::make_shared<child_process>(),
+        /* th   */ std::thread(),
+        /* meta */ std::move(meta)
     };
 }
 
@@ -515,7 +450,7 @@ void server_models::load_models() {
             }
 
             inst.meta.exit_code = 0; // clear failed state so the model can be reloaded
-            inst.meta.update_args(ctx_preset, bin_path);
+            inst.meta.update_args(ctx_preset, self_argv0);
             inst.meta.update_caps();
         }
 
@@ -667,17 +602,7 @@ static int get_free_port() {
     return port;
 }
 
-// helper to convert vector<string> to char **
-// pointers are only valid as long as the original vector is valid
-static std::vector<char *> to_char_ptr_array(const std::vector<std::string> & vec) {
-    std::vector<char *> result;
-    result.reserve(vec.size() + 1);
-    for (const auto & s : vec) {
-        result.push_back(const_cast<char*>(s.c_str()));
-    }
-    result.push_back(nullptr);
-    return result;
-}
+
 
 std::vector<server_model_meta> server_models::get_all_meta() {
     std::lock_guard<std::mutex> lk(mutex);
@@ -767,11 +692,11 @@ void server_models::load(const std::string & name) {
         throw std::runtime_error("failed to get a port number");
     }
 
-    inst.subproc = std::make_shared<subprocess_s>();
+    inst.proc = std::make_shared<child_process>();
     {
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
 
-        inst.meta.update_args(ctx_preset, bin_path); // render args
+        inst.meta.update_args(ctx_preset, self_argv0); // render args
 
         std::vector<std::string> child_args = inst.meta.args; // copy
         std::vector<std::string> child_env  = base_env; // copy
@@ -783,25 +708,19 @@ void server_models::load(const std::string & name) {
         }
         inst.meta.args = child_args; // save for debugging
 
-        std::vector<char *> argv = to_char_ptr_array(child_args);
-        std::vector<char *> envp = to_char_ptr_array(child_env);
-
         // TODO @ngxson : maybe separate stdout and stderr in the future
         //                so that we can use stdout for commands and stderr for logging
-        int options = subprocess_option_no_window | subprocess_option_combined_stdout_stderr;
-        int result = subprocess_create_ex(argv.data(), options, envp.data(), inst.subproc.get());
+        int result = inst.proc->run(child_args, child_env);
         if (result != 0) {
             throw std::runtime_error("failed to spawn server instance");
         }
-
-        inst.stdin_file = subprocess_stdin(inst.subproc.get());
     }
 
     // start a thread to manage the child process
     // captured variables are guaranteed to be destroyed only after the thread is joined
-    inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port, stop_timeout = inst.meta.stop_timeout]() {
-        FILE * stdin_file = subprocess_stdin(child_proc.get());
-        FILE * stdout_file = subprocess_stdout(child_proc.get()); // combined stdout/stderr
+    inst.th = std::thread([this, name, child_proc = inst.proc, port = inst.meta.port, stop_timeout = inst.meta.stop_timeout]() {
+        FILE * stdin_file = child_proc->stdin_pipe();
+        FILE * stdout_file = child_proc->stdout_pipe(); // combined stdout/stderr
 
         std::thread log_thread([&]() {
             // read stdout/stderr and forward to main server log
@@ -831,14 +750,14 @@ void server_models::load(const std::string & name) {
                 return this->stopping_models.find(name) != this->stopping_models.end();
             };
             auto should_wake = [&]() {
-                return is_stopping() || !subprocess_alive(child_proc.get());
+                return is_stopping() || !child_proc->is_alive();
             };
             {
                 std::unique_lock<std::mutex> lk(this->mutex);
                 this->cv_stop.wait(lk, should_wake);
             }
             // child may have already exited (e.g. crashed) — skip shutdown sequence
-            if (!subprocess_alive(child_proc.get())) {
+            if (!child_proc->is_alive()) {
                 return;
             }
             SRV_INF("stopping model instance name=%s\n", name.c_str());
@@ -856,7 +775,7 @@ void server_models::load(const std::string & name) {
                 if (elapsed >= stop_timeout * 1000) {
                     // timeout, force kill
                     SRV_WRN("force-killing model instance name=%s after %d seconds timeout\n", name.c_str(), stop_timeout);
-                    subprocess_terminate(child_proc.get());
+                    child_proc->terminate();
                     return;
                 }
                 this->cv_stop.wait_for(lk, std::chrono::seconds(1));
@@ -880,9 +799,7 @@ void server_models::load(const std::string & name) {
         }
 
         // get the exit code
-        int exit_code = 0;
-        subprocess_join(child_proc.get(), &exit_code);
-        subprocess_destroy(child_proc.get());
+        int exit_code = child_proc->join();
 
         // update status and exit code
         this->update_status(name, SERVER_MODEL_STATUS_UNLOADED, exit_code);
@@ -893,9 +810,9 @@ void server_models::load(const std::string & name) {
     {
         auto & old_instance = mapping[name];
         // old process should have exited already, but just in case, we clean it up here
-        if (subprocess_alive(old_instance.subproc.get())) {
+        if (old_instance.proc->is_alive()) {
             SRV_WRN("old process for model name=%s is still alive, this is unexpected\n", name.c_str());
-            subprocess_terminate(old_instance.subproc.get()); // force kill
+            old_instance.proc->terminate(); // force kill
         }
         if (old_instance.th.joinable()) {
             old_instance.th.join();
@@ -916,7 +833,7 @@ void server_models::unload(const std::string & name) {
             if (it->second.meta.status == SERVER_MODEL_STATUS_LOADING) {
                 // special case: if model is in loading state, unloading means force-killing it
                 SRV_WRN("model name=%s is still loading, force-killing\n", name.c_str());
-                subprocess_terminate(it->second.subproc.get());
+                it->second.proc->terminate();
             }
             cv_stop.notify_all();
             // status change will be handled by the managing thread

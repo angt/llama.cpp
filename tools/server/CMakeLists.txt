@@ -37,6 +37,8 @@ add_library(${TARGET} STATIC
     server-http.h
     server-models.cpp
     server-models.h
+    child-process.cpp
+    child-process.h
 )
 
 target_include_directories(${TARGET} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

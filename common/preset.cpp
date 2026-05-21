@@ -58,12 +58,8 @@ static std::set<std::string> get_remote_preset_whitelist(const std::map<std::str
     return allowed_keys;
 }
 
-std::vector<std::string> common_preset::to_args(const std::string & bin_path) const {
+std::vector<std::string> common_preset::to_args() const {
     std::vector<std::string> args;
-
-    if (!bin_path.empty()) {
-        args.push_back(bin_path);
-    }
 
     for (const auto & [opt, value] : options) {
         if (opt.is_preset_only) {

@@ -78,12 +78,14 @@ int main(int argc, char ** argv) {
 
     for (const auto & cmd : cmds) {
         if (matches(arg, cmd)) {
-
-            // router spawns children through this same binary, it needs the
-            // subcommand to relaunch as 'llama serve' and not bare options
+            // Store argv[0] and the subcommand in the environment so that
+            // subcommands that re-exec (e.g. the server in router mode) can
+            // find the binary and sub-command without path discovery.
 #ifdef _WIN32
+            _putenv_s("LLAMA_ARGV0", argv[0]);
             _putenv_s("LLAMA_APP_CMD", cmd.name);
 #else
+            setenv("LLAMA_ARGV0", argv[0], 1);
             setenv("LLAMA_APP_CMD", cmd.name, 1);
 #endif
             return cmd.func(argc - 1, argv + 1);

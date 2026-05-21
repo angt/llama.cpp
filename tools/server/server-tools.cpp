@@ -1,6 +1,6 @@
 #include "server-tools.h"
 
-#include <sheredom/subprocess.h>
+#include "child-process.h"
 
 #include <filesystem>
 #include <fstream>
@@ -18,16 +18,6 @@ namespace fs = std::filesystem;
 // internal helpers
 //
 
-static std::vector<char *> to_cstr_vec(const std::vector<std::string> & v) {
-    std::vector<char *> r;
-    r.reserve(v.size() + 1);
-    for (const auto & s : v) {
-        r.push_back(const_cast<char *>(s.c_str()));
-    }
-    r.push_back(nullptr);
-    return r;
-}
-
 struct run_proc_result {
     std::string output;
     int  exit_code = -1;
@@ -40,15 +30,9 @@ static run_proc_result run_process(
         int timeout_secs) {
     run_proc_result res;
 
-    subprocess_s proc;
-    auto argv = to_cstr_vec(args);
-
-    int options = subprocess_option_no_window
-                | subprocess_option_combined_stdout_stderr
-                | subprocess_option_inherit_environment
-                | subprocess_option_search_user_path;
-
-    if (subprocess_create(argv.data(), options, &proc) != 0) {
+    child_process proc;
+    // Inherit parent environment (env is empty), PATH search enabled
+    if (proc.run(args) != 0) {
         res.output = "failed to spawn process";
         return res;
     }
@@ -61,14 +45,14 @@ static run_proc_result run_process(
         while (!done.load()) {
             if (std::chrono::steady_clock::now() >= deadline) {
                 timed_out.store(true);
-                subprocess_terminate(&proc);
+                proc.terminate();
                 return;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     });
 
-    FILE * f = subprocess_stdout(&proc);
+    FILE * f = proc.stdout_pipe();
     std::string output;
     bool truncated = false;
     if (f) {
@@ -91,8 +75,7 @@ static run_proc_result run_process(
         timeout_thread.join();
     }
 
-    subprocess_join(&proc, &res.exit_code);
-    subprocess_destroy(&proc);
+    res.exit_code = proc.join();
 
     res.output    = output;
     res.timed_out = timed_out.load();

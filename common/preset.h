@@ -23,7 +23,7 @@ struct common_preset {
     std::map<common_arg, std::string> options;
 
     // convert preset to CLI argument list
-    std::vector<std::string> to_args(const std::string & bin_path = "") const;
+    std::vector<std::string> to_args() const;
 
     // convert preset to INI format string
     std::string to_ini() const;

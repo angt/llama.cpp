@@ -1,5 +1,6 @@
 #pragma once
 
+#include "child-process.h"
 #include "common.h"
 #include "preset.h"
 #include "server-common.h"
@@ -80,19 +81,16 @@ struct server_model_meta {
         return status == SERVER_MODEL_STATUS_UNLOADED && exit_code != 0;
     }
 
-    void update_args(common_preset_context & ctx_presets, std::string bin_path);
+    void update_args(common_preset_context & ctx_presets, const std::string & exec_path);
     void update_caps();
 };
-
-struct subprocess_s;
 
 struct server_models {
 private:
     struct instance_t {
-        std::shared_ptr<subprocess_s> subproc; // shared between main thread and monitoring thread
+        std::shared_ptr<child_process> proc; // shared between main thread and monitoring thread
         std::thread th;
         server_model_meta meta;
-        FILE * stdin_file = nullptr;
     };
 
     std::mutex mutex;
@@ -109,9 +107,9 @@ private:
     common_preset_context ctx_preset;
 
     common_params base_params;
-    std::string bin_path;
     std::vector<std::string> base_env;
     common_preset base_preset; // base preset from llama-server CLI args
+    std::string self_argv0;    // argv[0] from process startup, used to re-exec self
 
     void update_meta(const std::string & name, const server_model_meta & meta);
 
