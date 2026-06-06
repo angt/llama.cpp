@@ -31,16 +31,10 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
         ggml-cpu/ggml-cpu.cpp
         ggml-cpu/repack.cpp
         ggml-cpu/repack.h
-        ggml-cpu/hbm.cpp
-        ggml-cpu/hbm.h
         ggml-cpu/quants.c
         ggml-cpu/quants.h
         ggml-cpu/traits.cpp
         ggml-cpu/traits.h
-        ggml-cpu/amx/amx.cpp
-        ggml-cpu/amx/amx.h
-        ggml-cpu/amx/mmq.cpp
-        ggml-cpu/amx/mmq.h
         ggml-cpu/ggml-cpu-impl.h
         ggml-cpu/common.h
         ggml-cpu/binary-ops.h
@@ -53,6 +47,20 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
         ggml-cpu/ops.h
         ggml-cpu/ops.cpp
         )
+
+    if (GGML_CPU_HBM)
+        list(APPEND GGML_CPU_SOURCES
+            ggml-cpu/hbm.cpp
+            ggml-cpu/hbm.h)
+    endif()
+
+    if (GGML_SYSTEM_ARCH STREQUAL "x86")
+        list(APPEND GGML_CPU_SOURCES
+            ggml-cpu/amx/amx.cpp
+            ggml-cpu/amx/amx.h
+            ggml-cpu/amx/mmq.cpp
+            ggml-cpu/amx/mmq.h)
+    endif()
 
     target_compile_features(${GGML_CPU_NAME} PRIVATE c_std_11 cxx_std_17)
     target_include_directories(${GGML_CPU_NAME} PRIVATE . ggml-cpu)
