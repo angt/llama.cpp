@@ -178,8 +178,18 @@ if (CUDAToolkit_FOUND)
 
     if (GGML_CUDA_NO_VMM)
         # No VMM requested, no need to link directly with the cuda driver lib (libcuda.so)
-    else()
+    elseif (WIN32)
+        # On Windows the driver is linked normally. The dlopen-based loader
+        # (cuda-driver-dl.cuh) is disabled on Windows, so the cu* symbols used by
+        # VMM must be resolved at link time.
         target_link_libraries(ggml-cuda PRIVATE CUDA::cuda_driver)
+    else()
+        # On non-Windows the CUDA driver API (libcuda.so) is loaded at runtime
+        # via dlopen (see ggml-cuda/cuda-driver-dl.cuh) instead of being linked
+        # directly. This avoids a hard DT_NEEDED on libcuda.so.1, matching how
+        # libcudart.so and libcublas.so work (they only link libdl and dlopen the
+        # driver themselves). We only need libdl here.
+        target_link_libraries(ggml-cuda PRIVATE ${CMAKE_DL_LIBS})
     endif()
 
     if (GGML_CUDA_NCCL)

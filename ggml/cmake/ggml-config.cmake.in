@@ -58,8 +58,15 @@ if (NOT GGML_SHARED_LIB)
                 list(APPEND GGML_CUDA_INTERFACE_LINK_LIBRARIES $<LINK_ONLY:CUDA::cublas_static> $<LINK_ONLY:CUDA::cublasLt_static>)
             endif()
         endif()
-        if (NOT GGML_CUDA_NO_VMM)
+        if (NOT GGML_CUDA_NO_VMM AND WIN32)
+            # On non-Windows the driver is dlopen'd at runtime (no link dependency);
+            # only on Windows is it linked directly for the VMM code path.
             list(APPEND GGML_CUDA_INTERFACE_LINK_LIBRARIES $<LINK_ONLY:CUDA::cuda_driver>)
+        elseif (NOT GGML_CUDA_NO_VMM AND NOT WIN32)
+            # The dlopen-based loader (cuda-driver-dl.cuh) needs libdl.
+            find_dependency(Threads)
+            find_library(GGML_DL_LIBRARY dl)
+            list(APPEND GGML_CUDA_INTERFACE_LINK_LIBRARIES $<LINK_ONLY:${GGML_DL_LIBRARY}>)
         endif()
     endif()
 

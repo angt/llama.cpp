@@ -6,6 +6,12 @@
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 
+// On non-Windows CUDA (non-HIP, non-MUSA, with VMM enabled) load the CUDA
+// driver API via dlopen instead of linking libcuda directly, so the built
+// library has no hard DT_NEEDED on libcuda.so.1. No-op on Windows / HIP / MUSA
+// / when VMM is disabled, where the driver is linked normally.
+#include "ggml-cuda/cuda-driver-dl.cuh"
+
 #ifdef GGML_USE_NCCL
 #include <nccl.h>
 #endif // GGML_USE_NCCL
