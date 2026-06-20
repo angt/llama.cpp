@@ -48,6 +48,7 @@
 #include "ggml-cuda/ssm-conv.cuh"
 #include "ggml-cuda/ssm-scan.cuh"
 #include "ggml-cuda/sum.cuh"
+#include "ggml-cuda/cutlass-gemm.cuh"
 #include "ggml-cuda/sumrows.cuh"
 #include "ggml-cuda/top-k.cuh"
 #include "ggml-cuda/mean.cuh"
@@ -614,9 +615,11 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
                 CUDA_CHECK(cudaStreamDestroy(streams[i][j]));
             }
         }
+#ifndef GGML_CUDA_USE_CUTLASS
         if (cublas_handles[i] != nullptr) {
             CUBLAS_CHECK(cublasDestroy(cublas_handles[i]));
         }
+#endif
     }
 }
 
@@ -1676,6 +1679,16 @@ static void ggml_cuda_op_mul_mat_cublas(
         const float alpha_f32 = 1.0f;
         const float beta_f32  = 0.0f;
 
+#ifdef GGML_CUDA_USE_CUTLASS
+        ggml_cuda_cutlass_gemm(stream,
+                row_diff, src1_ncols, ne10,
+                src0_ptr, ne00,
+                src1_ptr, ne10,
+                dst_bf16.get(), ldc,
+                alpha_f32, beta_f32,
+                GGML_TYPE_BF16, GGML_TYPE_BF16, GGML_TYPE_BF16,
+                GGML_TYPE_F32, cc);
+#else
         CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(id), stream));
         CUBLAS_CHECK(
             cublasGemmEx(ctx.cublas_handle(id), CUBLAS_OP_T, CUBLAS_OP_N,
@@ -1685,6 +1698,7 @@ static void ggml_cuda_op_mul_mat_cublas(
                     &beta_f32,   dst_bf16.get(), CUDA_R_16BF, ldc,
                     CUBLAS_COMPUTE_32F,
                     CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+#endif
 
         const to_fp32_cuda_t to_fp32_cuda = ggml_get_to_fp32_cuda(GGML_TYPE_BF16);
         to_fp32_cuda(dst_bf16.get(), dst_dd_i, row_diff*src1_ncols, stream);
@@ -1710,8 +1724,6 @@ static void ggml_cuda_op_mul_mat_cublas(
         }
         const half * src1_ptr = src1->type == GGML_TYPE_F16 ? (const half *) src1_ddf_i : src1_as_f16.get();
 
-        CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(id), stream));
-
         const auto & force_compute_type = ggml_cuda_cublas_get_force_compute_type();
 
         if (!force_compute_type.fp16 && (GGML_CUDA_CC_IS_CDNA(cc)
@@ -1721,6 +1733,17 @@ static void ggml_cuda_op_mul_mat_cublas(
         {
             const float alpha = 1.0f;
             const float beta = 0.0f;
+#ifdef GGML_CUDA_USE_CUTLASS
+            ggml_cuda_cutlass_gemm(stream,
+                    row_diff, src1_ncols, ne10,
+                    src0_ptr, ne00,
+                    src1_ptr, ne10,
+                    dst_dd_i, ldc,
+                    alpha, beta,
+                    GGML_TYPE_F16, GGML_TYPE_F16, GGML_TYPE_F32,
+                    GGML_TYPE_F32, cc);
+#else
+            CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(id), stream));
             CUBLAS_CHECK(
                 cublasGemmEx(ctx.cublas_handle(id), CUBLAS_OP_T, CUBLAS_OP_N,
                         row_diff, src1_ncols, ne10,
@@ -1729,12 +1752,27 @@ static void ggml_cuda_op_mul_mat_cublas(
                         &beta,   dst_dd_i, CUDA_R_32F, ldc,
                         CUBLAS_COMPUTE_32F,
                         CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+#endif
         } else {
+#ifdef GGML_CUDA_USE_CUTLASS
+            // CUTLASS always uses F32 accumulation, output F32 directly
+            const float alpha = 1.0f;
+            const float beta  = 0.0f;
+            ggml_cuda_cutlass_gemm(stream,
+                    row_diff, src1_ncols, ne10,
+                    src0_ptr, ne00,
+                    src1_ptr, ne10,
+                    dst_dd_i, ldc,
+                    alpha, beta,
+                    GGML_TYPE_F16, GGML_TYPE_F16, GGML_TYPE_F32,
+                    GGML_TYPE_F32, cc);
+#else
             ggml_cuda_pool_alloc<half> dst_f16(ctx.pool(id), row_diff*src1_ncols);
 
             const half alpha_f16 = 1.0f;
             const half beta_f16 = 0.0f;
 
+            CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(id), stream));
             CUBLAS_CHECK(
                 cublasGemmEx(ctx.cublas_handle(id), CUBLAS_OP_T, CUBLAS_OP_N,
                         row_diff, src1_ncols, ne10,
@@ -1746,6 +1784,7 @@ static void ggml_cuda_op_mul_mat_cublas(
 
             const to_fp32_cuda_t to_fp32_cuda = ggml_get_to_fp32_cuda(GGML_TYPE_F16);
             to_fp32_cuda(dst_f16.get(), dst_dd_i, row_diff*src1_ncols, stream);
+#endif
         }
     } else {
         ggml_cuda_pool_alloc<float> src0_ddq_as_f32(ctx.pool(id));
@@ -1770,6 +1809,16 @@ static void ggml_cuda_op_mul_mat_cublas(
         const float alpha = 1.0f;
         const float beta = 0.0f;
 
+#ifdef GGML_CUDA_USE_CUTLASS
+        ggml_cuda_cutlass_gemm(stream,
+                row_diff, src1_ncols, ne10,
+                src0_ddf_i, ne00,
+                src1_ddf1_i, ne10,
+                dst_dd_i, ldc,
+                alpha, beta,
+                GGML_TYPE_F32, GGML_TYPE_F32, GGML_TYPE_F32,
+                GGML_TYPE_F32, cc);
+#else
         CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(id), stream));
         CUBLAS_CHECK(
             cublasSgemm(ctx.cublas_handle(id), CUBLAS_OP_T, CUBLAS_OP_N,
@@ -1777,6 +1826,7 @@ static void ggml_cuda_op_mul_mat_cublas(
                     &alpha, src0_ddf_i,  ne00,
                             src1_ddf1_i, ne10,
                     &beta,  dst_dd_i,    ldc));
+#endif
     }
 
     GGML_UNUSED_VARS(dst, src1_ddq_i, src1_padded_row_size);
@@ -2207,7 +2257,9 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda_context & ct
 
     const int64_t ne_dst = ggml_nelements(dst);
     cudaStream_t main_stream = ctx.stream();
+#ifndef GGML_CUDA_USE_CUTLASS
     CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(), main_stream));
+#endif
 
     float * dst_ddf = (float *) dst->data;
     const size_t ts_src1 = ggml_type_size(src1->type);
@@ -2304,6 +2356,22 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda_context & ct
         const int64_t smb = ne12 == 1 ? s13       : s12;
 
         // there is no broadcast and src0, src1 are contiguous across dims 2, 3
+#ifdef GGML_CUDA_USE_CUTLASS
+        // Determine the ggml data/compute types for CUTLASS dispatch
+        const ggml_type cutlass_A_type = src0_type;
+        const ggml_type cutlass_B_type = src0_type;
+        const ggml_type cutlass_C_type = (cu_data_type == CUDA_R_32F) ? GGML_TYPE_F32 : src0_type;
+        const ggml_type cutlass_compute = (cu_compute_type == CUBLAS_COMPUTE_32F) ? GGML_TYPE_F32 : GGML_TYPE_F16;
+        ggml_cuda_cutlass_gemm_strided_batched(main_stream,
+                ne01, ne11, ne10,
+                src0_ptr, nb01/nb00, sma,
+                src1_ptr, s11,        smb,
+                dst_t,    ne0,        ne1*ne0,
+                ne12*ne13,
+                1.0f, 0.0f,
+                cutlass_A_type, cutlass_B_type, cutlass_C_type,
+                cutlass_compute, cc);
+#else
         // use cublasGemmStridedBatchedEx
         CUBLAS_CHECK(
         cublasGemmStridedBatchedEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
@@ -2314,6 +2382,7 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda_context & ct
                 ne12*ne13,
                 cu_compute_type,
                 CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+#endif
     } else {
         // use cublasGemmBatchedEx
         const int64_t ne23 = ne12*ne13;
@@ -2344,6 +2413,31 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda_context & ct
 
         CUDA_CHECK(cudaGetLastError());
 
+#ifdef GGML_CUDA_USE_CUTLASS
+        // CUTLASS doesn't support pointer-based batched GEMM,
+        // so launch individual GEMMs in a loop.
+        // TODO: This is suboptimal; consider making data contiguous for strided batched.
+        const void ** h_ptrs_src0 = new const void *[ne23];
+        const void ** h_ptrs_src1 = new const void *[ne23];
+        void ** h_ptrs_dst = new void *[ne23];
+        cudaMemcpy(h_ptrs_src0, ptrs_src.get(), ne23 * sizeof(void *), cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_ptrs_src1, ptrs_src.get() + ne23, ne23 * sizeof(void *), cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_ptrs_dst, ptrs_dst.get(), ne23 * sizeof(void *), cudaMemcpyDeviceToHost);
+        for (int i = 0; i < ne23; i++) {
+            ggml_cuda_cutlass_gemm(main_stream,
+                    ne01, ne11, ne10,
+                    h_ptrs_src0[i], nb01/nb00,
+                    h_ptrs_src1[i], s11,
+                    h_ptrs_dst[i], ne0,
+                    1.0f, 0.0f,
+                    src0_type, src0_type, (cu_data_type == CUDA_R_32F) ? GGML_TYPE_F32 : src0_type,
+                    (cu_compute_type == CUBLAS_COMPUTE_32F) ? GGML_TYPE_F32 : GGML_TYPE_F16,
+                    cc);
+        }
+        delete[] h_ptrs_src0;
+        delete[] h_ptrs_src1;
+        delete[] h_ptrs_dst;
+#else
         CUBLAS_CHECK(
         cublasGemmBatchedEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
                 ne01, ne11, ne10,
@@ -2353,6 +2447,7 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda_context & ct
                 ne23,
                 cu_compute_type,
                 CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+#endif
     }
 
     // Convert output back to F32 if needed

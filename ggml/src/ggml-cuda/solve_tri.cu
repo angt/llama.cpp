@@ -267,9 +267,18 @@ void ggml_cuda_op_solve_tri(ggml_backend_cuda_context & ctx, ggml_tensor * dst) 
                            src1->nb[2] / sizeof(float), src1->nb[3] / sizeof(float), dst->nb[2] / sizeof(float),
                            dst->nb[3] / sizeof(float), ctx.stream());
     } else {
+#ifdef GGML_CUDA_USE_CUTLASS
+        // When using CUTLASS (no cuBLAS linked), use the CUDA kernel for all sizes.
+        // The general-case kernel works for any n, k but is slower than cuBLAS for large n.
+        solve_tri_f32_cuda((const float *) src0->data, (const float *) src1->data, (float *) dst->data, n, k,
+                           src0->ne[2], src0->ne[3], src0->nb[2] / sizeof(float), src0->nb[3] / sizeof(float),
+                           src1->nb[2] / sizeof(float), src1->nb[3] / sizeof(float), dst->nb[2] / sizeof(float),
+                           dst->nb[3] / sizeof(float), ctx.stream());
+#else
         solve_tri_f32_cublas(ctx, (const float *) src0->data, (const float *) src1->data, (float *) dst->data, n, k,
                              ne02, ne03, src0->nb[2] / sizeof(float), src0->nb[3] / sizeof(float),
                              src1->nb[2] / sizeof(float), src1->nb[3] / sizeof(float), dst->nb[2] / sizeof(float),
                              dst->nb[3] / sizeof(float), ctx.stream());
+#endif
     }
 }

@@ -72,6 +72,32 @@ if (CUDAToolkit_FOUND)
         FetchContent_MakeAvailable(CCCL)
     endif()
 
+    # CUTLASS GEMM backend (replaces cuBLAS for GEMM, reduces binary size with GGML_STATIC)
+    if (GGML_CUDA_CUTLASS)
+        # Derive the CUTLASS arch from CMAKE_CUDA_ARCHITECTURES (must have exactly one)
+        list(LENGTH CMAKE_CUDA_ARCHITECTURES _cutlass_arch_count)
+        if(NOT _cutlass_arch_count EQUAL 1)
+            message(FATAL_ERROR "GGML_CUDA_CUTLASS=ON requires exactly one CUDA architecture in CMAKE_CUDA_ARCHITECTURES (got: ${CMAKE_CUDA_ARCHITECTURES})")
+        endif()
+        list(GET CMAKE_CUDA_ARCHITECTURES 0 _cutlass_arch_raw)
+        string(REGEX MATCH "^[0-9]+" _cutlass_arch_num "${_cutlass_arch_raw}")
+
+        include(FetchContent)
+
+        FetchContent_Declare(
+            CUTLASS
+            GIT_REPOSITORY https://github.com/nvidia/cutlass.git
+            GIT_TAG        v4.5.2
+            GIT_SHALLOW    TRUE
+            SOURCE_SUBDIR  include   # CUTLASS is header-only; skip its examples/tests
+        )
+
+        FetchContent_MakeAvailable(CUTLASS)
+
+        add_compile_definitions(GGML_CUDA_USE_CUTLASS)
+        add_compile_definitions(GGML_CUDA_CUTLASS_ARCH=${_cutlass_arch_num})
+    endif()
+
     # Replace any plain 12X CUDA architectures with their "architecture-specific" equivalents 12Xa.
     # 12X is forwards-compatible, 12Xa is not.
     # Notably the Blackwell FP4 tensor core instructions are not forwards compatible and therefore need 12Xa.
@@ -129,6 +155,16 @@ if (CUDAToolkit_FOUND)
                              ${GGML_SOURCES_CUDA}
                             )
 
+    # CUTLASS target-specific settings (must come after ggml_add_backend_library)
+    if (GGML_CUDA_CUTLASS)
+        # CUTLASS headers
+        target_include_directories(ggml-cuda PRIVATE ${cutlass_SOURCE_DIR}/include)
+        # CUTLASS depends on CCCL/cub headers which reference each other
+        target_include_directories(ggml-cuda PRIVATE ${cutlass_SOURCE_DIR})
+        # CUTLASS requires C++17
+        set_property(TARGET ggml-cuda PROPERTY CXX_STANDARD 17)
+    endif()
+
     add_compile_definitions(GGML_CUDA_PEER_MAX_BATCH_SIZE=${GGML_CUDA_PEER_MAX_BATCH_SIZE})
 
     if (GGML_CUDA_GRAPHS)
@@ -163,7 +199,11 @@ if (CUDAToolkit_FOUND)
             if (GGML_CUDA_CUB_3DOT2)
                 target_link_libraries(ggml-cuda PRIVATE  CCCL::CCCL)
             endif()
-            if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "10.1")
+            if (GGML_CUDA_CUTLASS)
+                # CUTLASS replaces cuBLAS for GEMM; custom CUDA kernel replaces TRSM
+                # No cuBLAS linkage needed at all
+                target_link_libraries(ggml-cuda PRIVATE  CUDA::cudart_static)
+            elseif (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "10.1")
                 target_link_libraries(ggml-cuda PRIVATE  CUDA::cudart_static CUDA::cublas_static CUDA::cublasLt_static)
             else()
                 target_link_libraries(ggml-cuda PRIVATE  CUDA::cudart_static CUDA::cublas_static)

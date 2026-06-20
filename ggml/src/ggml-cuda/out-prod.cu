@@ -1,5 +1,7 @@
 #include "out-prod.cuh"
 
+#include "cutlass-gemm.cuh"
+
 #include <cstdint>
 
 void ggml_cuda_out_prod(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
@@ -27,20 +29,16 @@ void ggml_cuda_out_prod(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
     float       *  dst_d = (float       *)  dst->data;
 
     cudaStream_t   stream = ctx.stream();
-    cublasHandle_t handle = ctx.cublas_handle();
 
     const float alpha = 1.0f;
     const float beta = 0.0f;
-
-    CUBLAS_CHECK(cublasSetStream(handle, stream));
 
     const int64_t lda = nb01 / sizeof(float);
     const int64_t ldc = nb1  / sizeof(float);
 
     const bool src1_T = ggml_is_transposed(src1);
-    const cublasOperation_t src1_cublas_op =  src1_T ? CUBLAS_OP_N : CUBLAS_OP_T;
-    const int64_t           ldb            = (src1_T ?        nb10 :        nb11) /  sizeof(float);
-    GGML_ASSERT(                             (src1_T ?        nb11 :        nb10) == sizeof(float));
+    const int64_t ldb = (src1_T ? nb10 : nb11) /  sizeof(float);
+    GGML_ASSERT(                   (src1_T ? nb11 : nb10) == sizeof(float));
 
     // data strides in dimensions 2/3
     const size_t s02 = nb02 / sizeof(float);
@@ -54,7 +52,39 @@ void ggml_cuda_out_prod(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
     const int64_t dps2 = ne2 / ne02;
     const int64_t dps3 = ne3 / ne03;
 
+#ifdef GGML_CUDA_USE_CUTLASS
     if (dps2 == 1 && ne2 > 1) {
+        const int batch_count = (int) ne2;
+        for (int64_t i3 = 0; i3 < ne3; ++i3) {
+            ggml_cuda_cutlass_out_prod_strided_batched(stream,
+                    ne0, ne1, ne01,
+                    src0_d + (i3/dps3)*s03, lda, s02,
+                    src1_d +  i3     *s13, ldb, s12,
+                    dst_d  +  i3     *s3,  ldc, s2,
+                    batch_count,
+                    alpha, beta,
+                    src1_T);
+        }
+    } else {
+        for (int64_t i3 = 0; i3 < ne3; ++i3) {
+            for (int64_t i2 = 0; i2 < ne2; ++i2) {
+                ggml_cuda_cutlass_out_prod(stream,
+                        ne0, ne1, ne01,
+                        src0_d + (i3/dps3)*s03 + (i2/dps2)*s02, lda,
+                        src1_d +  i3      *s13 +  i2      *s12, ldb,
+                        dst_d  +  i3      *s3  +  i2      *s2,  ldc,
+                        alpha, beta,
+                        src1_T);
+            }
+        }
+    }
+#else
+    cublasHandle_t handle = ctx.cublas_handle();
+
+    CUBLAS_CHECK(cublasSetStream(handle, stream));
+
+    if (dps2 == 1 && ne2 > 1) {
+        const cublasOperation_t src1_cublas_op =  src1_T ? CUBLAS_OP_N : CUBLAS_OP_T;
         // src0 has uniform stride s02 along dim 2; batch the inner loop with a strided GEMM
         GGML_ASSERT(ne2 <= std::numeric_limits<int>::max());
         const int batch_count = (int) ne2;
@@ -68,6 +98,7 @@ void ggml_cuda_out_prod(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
                         batch_count));
         }
     } else {
+        const cublasOperation_t src1_cublas_op =  src1_T ? CUBLAS_OP_N : CUBLAS_OP_T;
         // Fallback: ne2 == 1 (no batching benefit) or dps2 > 1 (src0 broadcast along dim 2
         // with non-uniform stride; would need cublasSgemmBatched with pointer arrays).
         for (int64_t i3 = 0; i3 < ne3; ++i3) {
@@ -81,4 +112,5 @@ void ggml_cuda_out_prod(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
             }
         }
     }
+#endif
 }
