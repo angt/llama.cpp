@@ -40,6 +40,9 @@
 #include "vendors/cuda.h"
 #endif // defined(GGML_USE_HIP)
 
+// Redirects cu* driver symbols to runtime wrappers when GGML_CUDA_DRIVER_DLOPEN is set.
+#include "cuda_driver_loader.h"
+
 #define STRINGIZE_IMPL(...) #__VA_ARGS__
 #define STRINGIZE(...) STRINGIZE_IMPL(__VA_ARGS__)
 

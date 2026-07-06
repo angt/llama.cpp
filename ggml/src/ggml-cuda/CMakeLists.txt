@@ -103,6 +103,7 @@ if (CUDAToolkit_FOUND)
     list(APPEND GGML_HEADERS_CUDA "../../include/ggml-cuda.h")
 
     file(GLOB   GGML_SOURCES_CUDA "*.cu")
+    list(APPEND GGML_SOURCES_CUDA "cuda_driver_loader.cpp")
     file(GLOB   SRCS "template-instances/fattn-tile*.cu")
     list(APPEND GGML_SOURCES_CUDA ${SRCS})
     file(GLOB   SRCS "template-instances/fattn-mma*.cu")
@@ -147,6 +148,10 @@ if (CUDAToolkit_FOUND)
         add_compile_definitions(GGML_CUDA_NO_VMM)
     endif()
 
+    if (GGML_CUDA_DRIVER_DLOPEN)
+        add_compile_definitions(GGML_CUDA_DRIVER_DLOPEN)
+    endif()
+
     if (NOT GGML_CUDA_FA)
         add_compile_definitions(GGML_CUDA_NO_FA)
     endif()
@@ -177,7 +182,12 @@ if (CUDAToolkit_FOUND)
     endif()
 
     if (GGML_CUDA_NO_VMM)
-        # No VMM requested, no need to link directly with the cuda driver lib (libcuda.so)
+        # No VMM: the CUDA driver (libcuda) is unused, nothing to link.
+    elseif (GGML_CUDA_DRIVER_DLOPEN)
+        # dlopen libcuda at runtime instead of linking it directly.
+        if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+            target_link_libraries(ggml-cuda PRIVATE dl)
+        endif()
     else()
         target_link_libraries(ggml-cuda PRIVATE CUDA::cuda_driver)
     endif()
