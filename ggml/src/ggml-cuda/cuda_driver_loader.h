@@ -4,10 +4,9 @@
 // backend loads where the driver SONAME is unavailable. No-op unless
 // GGML_CUDA_DRIVER_DLOPEN is defined; HIP/MUSA are excluded.
 
-#include "vendors/cuda.h"
-
 #if defined(GGML_CUDA_DRIVER_DLOPEN) && !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 
+#include "vendors/cuda.h"
 #include <mutex>
 
 #ifdef _WIN32
