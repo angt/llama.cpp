@@ -128,21 +128,26 @@ static void atomic_store(atomic_int * ptr, LONG val) {
     InterlockedExchange(ptr, val);
 }
 static void atomic_store_explicit(atomic_int * ptr, LONG val, memory_order mo) {
-    // TODO: add support for explicit memory order
-    InterlockedExchange(ptr, val);
+    if (mo == memory_order_relaxed) {
+        *ptr = val;
+    } else {
+        InterlockedExchange(ptr, val);
+    }
 }
 static LONG atomic_load(atomic_int * ptr) {
     return InterlockedCompareExchange(ptr, 0, 0);
 }
 static LONG atomic_load_explicit(atomic_int * ptr, memory_order mo) {
-    // TODO: add support for explicit memory order
+    if (mo == memory_order_relaxed) {
+        return *ptr;
+    }
     return InterlockedCompareExchange(ptr, 0, 0);
 }
 static LONG atomic_fetch_add(atomic_int * ptr, LONG inc) {
     return InterlockedExchangeAdd(ptr, inc);
 }
 static LONG atomic_fetch_add_explicit(atomic_int * ptr, LONG inc, memory_order mo) {
-    // TODO: add support for explicit memory order
+    (void) mo;
     return InterlockedExchangeAdd(ptr, inc);
 }
 static atomic_bool atomic_flag_test_and_set(atomic_flag * ptr) {
@@ -517,26 +522,21 @@ struct ggml_compute_state {
 };
 
 // Helpers for polling loops
-#if defined(__aarch64__) && ( defined(__clang__) || defined(__GNUC__) )
 static inline void ggml_thread_cpu_relax(void) {
+#if defined(_MSC_VER) && !defined(__clang__)
+    YieldProcessor();
+#elif defined(__aarch64__) && ( defined(__clang__) || defined(__GNUC__) )
     __asm__ volatile("yield" ::: "memory");
-}
-#elif defined(__x86_64__)
-static inline void ggml_thread_cpu_relax(void) {
+#elif defined(__x86_64__) || defined(__i386__)
     _mm_pause();
-}
 #elif defined(__riscv)
-static inline void ggml_thread_cpu_relax(void) {
-    #ifdef __riscv_zihintpause
-        __asm__ __volatile__ ("pause");
-    #else
-        /* Encoding of the pause instruction */
-        __asm__ __volatile__ (".4byte 0x100000F");
-    #endif
-}
+#ifdef __riscv_zihintpause
+    __asm__ __volatile__ ("pause");
 #else
-static inline void ggml_thread_cpu_relax(void) {;}
+    __asm__ __volatile__ (".4byte 0x100000F"); // pause
+#endif // defined(__riscv)
 #endif
+}
 
 //
 // NUMA support
