@@ -50,6 +50,11 @@ target_include_directories(${TARGET} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(${TARGET} PRIVATE ../mtmd ${CMAKE_SOURCE_DIR})
 target_link_libraries(${TARGET} PUBLIC server-context llama-ui cpp-httplib ${CMAKE_THREAD_LIBS_INIT})
 
+# server-http.cpp includes the generated ui.h, which the llama-ui-assets custom
+# target produces as a byproduct; ordering via the library link above only
+# applies at link time, so make sure the header exists before we compile
+add_dependencies(${TARGET} llama-ui-assets)
+
 if(LLAMA_TOOLS_INSTALL)
     install(TARGETS ${TARGET} LIBRARY)
 endif()
