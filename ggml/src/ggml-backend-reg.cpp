@@ -107,6 +107,15 @@ static std::string path_str(const fs::path & path) {
     }
 }
 
+static bool striequals(const char * a, const char * b) {
+    for (; *a && *b; a++, b++) {
+        if (std::tolower(*a) != std::tolower(*b)) {
+            return false;
+        }
+    }
+    return *a == *b;
+}
+
 struct ggml_backend_reg_entry {
     ggml_backend_reg_t reg;
     dl_handle_ptr handle;
@@ -183,14 +192,31 @@ struct ggml_backend_registry {
         }
     }
 
-    void register_backend(ggml_backend_reg_t reg, dl_handle_ptr handle = nullptr) {
+    ggml_backend_reg_t find_backend(const char * name) const {
+        for (const auto & entry : backends) {
+            if (striequals(ggml_backend_reg_name(entry.reg), name)) {
+                return entry.reg;
+            }
+        }
+        return nullptr;
+    }
+
+        // returns true if the backend was registered, false if it was a duplicate
+        bool register_backend(ggml_backend_reg_t reg, dl_handle_ptr handle = nullptr) {
         if (!reg) {
-            return;
+            return false;
         }
 
-        for (auto & entry : backends) {
+        for (const auto & entry : backends) {
             if (entry.reg == reg) {
-                return;
+                // same instance already registered: not an error (e.g. RPC re-registration)
+                return true;
+            }
+            if (striequals(ggml_backend_reg_name(entry.reg), ggml_backend_reg_name(reg))) {
+                // a second instance of the same backend would duplicate its state and devices
+                GGML_LOG_WARN("%s: backend %s is already registered, ignoring duplicate registration\n",
+                    __func__, ggml_backend_reg_name(reg));
+                return false;
             }
         }
 
@@ -202,6 +228,7 @@ struct ggml_backend_registry {
         for (size_t i = 0; i < ggml_backend_reg_dev_count(reg); i++) {
             register_device(ggml_backend_reg_dev_get(reg, i));
         }
+        return true;
     }
 
     void register_device(ggml_backend_dev_t device) {
@@ -256,9 +283,12 @@ struct ggml_backend_registry {
             return nullptr;
         }
 
-        GGML_LOG_INFO("%s: loaded %s backend from %s\n", __func__, ggml_backend_reg_name(reg), path_str(path).c_str());
+        if (!register_backend(reg, std::move(handle))) {
+            // rejected as a duplicate: the library handle is released by the dl_handle_ptr
+            return nullptr;
+        }
 
-        register_backend(reg, std::move(handle));
+        GGML_LOG_INFO("%s: loaded %s backend from %s\n", __func__, ggml_backend_reg_name(reg), path_str(path).c_str());
 
         return reg;
     }
@@ -304,15 +334,6 @@ void ggml_backend_device_register(ggml_backend_dev_t device) {
 }
 
 // Backend (reg) enumeration
-static bool striequals(const char * a, const char * b) {
-    for (; *a && *b; a++, b++) {
-        if (std::tolower(*a) != std::tolower(*b)) {
-            return false;
-        }
-    }
-    return *a == *b;
-}
-
 size_t ggml_backend_reg_count() {
     return get_reg().backends.size();
 }
@@ -323,13 +344,7 @@ ggml_backend_reg_t ggml_backend_reg_get(size_t index) {
 }
 
 ggml_backend_reg_t ggml_backend_reg_by_name(const char * name) {
-    for (size_t i = 0; i < ggml_backend_reg_count(); i++) {
-        ggml_backend_reg_t reg = ggml_backend_reg_get(i);
-        if (striequals(ggml_backend_reg_name(reg), name)) {
-            return reg;
-        }
-    }
-    return nullptr;
+    return get_reg().find_backend(name);
 }
 
 // Device enumeration
@@ -478,6 +493,12 @@ static fs::path backend_filename_extension() {
 }
 
 static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent, const char * user_search_path) {
+    // reuse an already registered backend (e.g. compiled into ggml) instead of loading a second instance
+    if (ggml_backend_reg_t reg = get_reg().find_backend(name)) {
+        GGML_LOG_DEBUG("%s: using already registered %s backend\n", __func__, ggml_backend_reg_name(reg));
+        return reg;
+    }
+
     // enumerate all the files that match [lib]ggml-name-*.[so|dll] in the search paths
     const fs::path name_path = fs::u8path(name);
     const fs::path file_prefix = backend_filename_prefix().native() + name_path.native() + fs::u8path("-").native();
