@@ -128,18 +128,13 @@ bool common_arg::get_value_from_env(std::string & output) const {
         // for compatibility, we need to check LLAMA_ARG_NO_ env as well
         std::string neg_env = env;
         string_replace_all(neg_env, "LLAMA_ARG_", "LLAMA_ARG_NO_");
-        char * neg_value = std::getenv(neg_env.c_str());
-        if (neg_value) {
+        if (!common_get_env(neg_env).empty()) {
             output = "0"; // falsey
             return true;
         }
     }
-    char * value = std::getenv(env);
-    if (value) {
-        output = value;
-        return true;
-    }
-    return false;
+    output = common_get_env(env);
+    return !output.empty();
 }
 
 bool common_arg::has_value_from_env() const {
@@ -147,11 +142,11 @@ bool common_arg::has_value_from_env() const {
         // for compatibility, we need to check LLAMA_ARG_NO_ env as well
         std::string neg_env = env;
         string_replace_all(neg_env, "LLAMA_ARG_", "LLAMA_ARG_NO_");
-        if (std::getenv(neg_env.c_str())) {
+        if (!common_get_env(neg_env).empty()) {
             return true;
         }
     }
-    return env != nullptr && std::getenv(env);
+    return env != nullptr && !common_get_env(env).empty();
 }
 
 static std::vector<std::string> break_str_into_lines(std::string input, size_t max_char_per_line) {
@@ -737,7 +732,7 @@ static void common_params_apply_system_config(common_params & params, llama_exam
     std::vector<std::string> found;
     for (const auto & path : paths) {
         std::error_code ec;
-        if (std::filesystem::exists(path, ec)) {
+        if (std::filesystem::exists(std::filesystem::u8path(path), ec)) {
             found.push_back(path);
         }
     }

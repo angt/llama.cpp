@@ -14,12 +14,7 @@
 #include <stdexcept>
 
 #if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #define HOME_DIR "USERPROFILE"
-#include <windows.h>
 #else
 #define HOME_DIR "HOME"
 #include <unistd.h>
@@ -43,9 +38,11 @@ static fs::path get_cache_directory() {
             {"XDG_CACHE_HOME",        fs::path("huggingface") / "hub"},
             {HOME_DIR,                fs::path(".cache") / "huggingface" / "hub"}
         };
+
+        // paths in std::string are UTF-8, the same contract as common_get_env
         for (const auto & entry : entries) {
-            if (auto * p = std::getenv(entry.var); p && *p) {
-                fs::path base(p);
+            fs::path base = fs::u8path(common_get_env(entry.var));
+            if (!base.empty()) {
                 return entry.path.empty() ? base : base / entry.path;
             }
         }
@@ -63,12 +60,7 @@ static fs::path get_cache_directory() {
 }
 
 std::string get_cache_path() {
-#if defined(__cpp_lib_char8_t)
-    const std::u8string u8str = get_cache_directory().u8string();
-    return std::string(reinterpret_cast<const char *>(u8str.data()), u8str.size());
-#else
-    return get_cache_directory().u8string();
-#endif
+    return fs_path_to_utf8(get_cache_directory());
 }
 
 static std::string folder_name_to_repo(const std::string & folder) {
@@ -352,11 +344,11 @@ hf_files get_repo_files(const std::string & repo_id,
             file.url = endpoint + repo_id + "/resolve/" + commit + "/" + file.path;
 
             fs::path final_path = commit_path / file.path;
-            file.final_path = final_path.string();
+            file.final_path = fs_path_to_utf8(final_path);
 
             if (!file.oid.empty() && !fs::exists(final_path)) {
                 fs::path local_path = blobs_path / file.oid;
-                file.local_path = local_path.string();
+                file.local_path = fs_path_to_utf8(local_path);
             } else {
                 file.local_path = file.final_path;
             }
@@ -461,8 +453,8 @@ std::string finalize_file(const hf_file & file) {
     static std::atomic<bool> symlinks_disabled{false};
 
     std::error_code ec;
-    fs::path local_path(file.local_path);
-    fs::path final_path(file.final_path);
+    fs::path local_path = fs::u8path(file.local_path);
+    fs::path final_path = fs::u8path(file.final_path);
 
     if (local_path == final_path || fs::exists(final_path, ec)) {
         return file.final_path;

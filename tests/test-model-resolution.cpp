@@ -84,14 +84,15 @@ static common_params_model model_ref(const std::string & hf_repo, const std::str
     return m;
 }
 
-// the model cache is isolated under a temporary directory named after the
-// loopback port, so concurrent runs on a shared machine keep their own, and
-// the local path the handler wires for a file is snapshots/<commit>/<path>
+// the cache lives in a temp directory named after the port, so concurrent runs do not share it
+// the local path of a file is snapshots/<commit>/<path>
+// the non-ASCII directory name makes the test use UTF-8 paths end to end
 static std::filesystem::path cache_dir;
 
+// fs_path_to_utf8 gives UTF-8 strings with native separators, the same as the paths the library returns
 static std::string cached(std::string repo_id, const std::string & path) {
     string_replace_all(repo_id, "/", "--");
-    return (cache_dir / ("models--" + repo_id) / "snapshots" / COMMIT / path).string();
+    return fs_path_to_utf8(cache_dir / ("models--" + repo_id) / "snapshots" / COMMIT / path);
 }
 
 //
@@ -486,9 +487,9 @@ int main(void) {
     // isolate the cache, its location is read once so it is set
     // before anything else
     cache_dir = std::filesystem::temp_directory_path() /
-                ("test-model-resolution-cache-" + std::to_string(port));
+                ("test-model-resolution-cache-ünïcødé-日本語-" + std::to_string(port));
     std::filesystem::remove_all(cache_dir);
-    common_set_env("LLAMA_CACHE", cache_dir.string());
+    common_set_env("LLAMA_CACHE", fs_path_to_utf8(cache_dir));
 
     std::thread server_thread([&server] { server.listen_after_bind(); });
     server.wait_until_ready();

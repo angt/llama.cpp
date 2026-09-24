@@ -111,15 +111,14 @@ static std::string path_to_utf8(const fs::path & p) {
 // home directory, read once at first use (getenv is not thread safe against setenv)
 static const std::string & home_dir() {
     static const std::string home = [] {
-#ifdef _WIN32
         // the narrow getenv would return the profile path in the active code page
-        const wchar_t * w = _wgetenv(L"HOME");
-        if (w == nullptr) w = _wgetenv(L"USERPROFILE");
-        return w ? path_to_utf8(fs::path(w)) : std::string();
-#else
-        const char * h = getenv("HOME");
-        return h ? std::string(h) : std::string();
+        std::string h = common_get_env("HOME");
+#ifdef _WIN32
+        if (h.empty()) {
+            h = common_get_env("USERPROFILE");
+        }
 #endif
+        return h;
     }();
     return home;
 }

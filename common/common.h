@@ -16,6 +16,7 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 
 #if defined(_WIN32) && !defined(_WIN32_WINNT)
@@ -881,11 +882,23 @@ std::string string_from(const struct llama_context * ctx, const struct llama_bat
 bool glob_match(const std::string & pattern, const std::string & str);
 
 //
+// Unicode utils
+//
+
+// strings crossing the wchar_t boundary on Windows are UTF-8 on the std::string side
+#ifdef _WIN32
+std::wstring utf8_to_wstring(const std::string & str);
+std::string  wstring_to_utf8(const std::wstring & str);
+#endif
+
+//
 // Environment utils
 //
 
 // portable environment access, an unset variable reads as an empty string
 // and setting an empty value unsets the variable
+//
+// names and values are UTF-8 encoded on every platform
 std::string common_get_env(const std::string & name);
 void        common_set_env(const std::string & name, const std::string & value);
 
@@ -911,6 +924,9 @@ std::vector<common_file_info> fs_list(const std::string & path, bool include_dir
 
 // fs open, also handle UTF8 on Windows
 std::ifstream fs_open_ifstream(const std::string & fname, std::ios_base::openmode mode);
+
+// paths in std::string are UTF-8; string() would convert with the active code page on Windows
+std::string fs_path_to_utf8(const std::filesystem::path & path);
 
 //
 // TTY utils

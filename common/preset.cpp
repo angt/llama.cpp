@@ -170,11 +170,11 @@ void common_preset::apply_to_params(common_params & params, const std::set<std::
 static std::map<std::string, std::map<std::string, std::string>> parse_ini_from_file(const std::string & path) {
     std::map<std::string, std::map<std::string, std::string>> parsed;
 
-    if (!std::filesystem::exists(path)) {
+    if (!std::filesystem::exists(std::filesystem::u8path(path))) {
         throw std::runtime_error("preset file does not exist: " + path);
     }
 
-    std::ifstream file(path);
+    std::ifstream file(std::filesystem::u8path(path));
     if (!file.good()) {
         throw std::runtime_error("failed to open server preset file: " + path);
     }

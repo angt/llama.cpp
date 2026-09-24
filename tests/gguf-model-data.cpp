@@ -386,7 +386,7 @@ static std::string sanitize_for_path(const std::string & s) {
 }
 
 static bool read_file(const std::string & path, std::vector<char> & out) {
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    std::ifstream f(std::filesystem::u8path(path), std::ios::binary | std::ios::ate);
     if (!f.good()) {
         return false;
     }
@@ -401,7 +401,7 @@ static bool read_file(const std::string & path, std::vector<char> & out) {
 }
 
 static bool write_file(const std::string & path, const std::vector<char> & data) {
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    std::ofstream f(std::filesystem::u8path(path), std::ios::binary | std::ios::trunc);
     if (!f.good()) {
         return false;
     }
@@ -580,7 +580,7 @@ static std::optional<gguf_remote_model> fetch_or_cached(
 
     {
         std::vector<char> cached;
-        if (std::filesystem::exists(cache_path) && read_file(cache_path, cached)) {
+        if (std::filesystem::exists(std::filesystem::u8path(cache_path)) && read_file(cache_path, cached)) {
             auto result = gguf_parse_meta(cached);
             if (result.has_value()) {
                 if (verbose) {

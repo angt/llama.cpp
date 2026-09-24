@@ -1,18 +1,8 @@
 #include "unicode.h"
 
 #include <algorithm>
-#include <cassert>
 #include <stdexcept>
 #include <string>
-#include <vector>
-
-// implementation adopted from src/unicode.cpp
-
-size_t common_utf8_sequence_length(unsigned char first_byte) {
-    const size_t lookup[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 3, 4 };
-    uint8_t highbits = static_cast<uint8_t>(first_byte) >> 4;
-    return lookup[highbits];
-}
 
 utf8_parse_result common_parse_utf8_codepoint(std::string_view input, size_t offset) {
     if (offset >= input.size()) {
@@ -88,14 +78,6 @@ bool common_utf8_is_complete(const std::string & s) {
     return false;
 }
 
-std::string common_unicode_cpts_to_utf8(const std::vector<uint32_t> & cps) {
-    std::string result;
-    for (size_t i = 0; i < cps.size(); ++i) {
-        result.append(common_unicode_cpt_to_utf8(cps[i]));
-    }
-    return result;
-}
-
 std::string common_unicode_cpt_to_utf8(uint32_t cpt) {
     std::string result;
 
@@ -124,6 +106,3 @@ std::string common_unicode_cpt_to_utf8(uint32_t cpt) {
 
     throw std::invalid_argument("invalid codepoint");
 }
-
-
-

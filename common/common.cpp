@@ -900,7 +900,7 @@ bool fs_validate_filename(const std::string & filename, bool allow_subdirs) {
 
 
 #ifdef _WIN32
-static std::wstring utf8_to_wstring(const std::string & str) {
+std::wstring utf8_to_wstring(const std::string & str) {
     if (str.empty()) {
         return std::wstring();
     }
@@ -916,7 +916,34 @@ static std::wstring utf8_to_wstring(const std::string & str) {
 
     return wstr;
 }
+
+std::string wstring_to_utf8(const std::wstring & str) {
+    if (str.empty()) {
+        return std::string();
+    }
+
+    int size = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), (int)str.size(), NULL, 0, NULL, NULL);
+
+    if (size <= 0) {
+        return std::string();
+    }
+
+    std::string utf8(size, 0);
+    WideCharToMultiByte(CP_UTF8, 0, str.c_str(), (int)str.size(), &utf8[0], size, NULL, NULL);
+
+    return utf8;
+}
 #endif
+
+// paths in std::string are UTF-8; string() would convert with the active code page on Windows
+std::string fs_path_to_utf8(const std::filesystem::path & path) {
+#if defined(__cpp_lib_char8_t)
+    const std::u8string s = path.u8string();
+    return std::string(s.begin(), s.end());
+#else
+    return path.u8string();
+#endif
+}
 
 // returns true if successful, false otherwise
 bool fs_create_directory_with_parents(const std::string & path) {
@@ -995,18 +1022,26 @@ bool fs_create_directory_with_parents(const std::string & path) {
 }
 
 bool fs_is_directory(const std::string & path) {
-    std::filesystem::path dir(path);
+    std::filesystem::path dir = std::filesystem::u8path(path);
     return std::filesystem::exists(dir) && std::filesystem::is_directory(dir);
 }
 
 std::string common_get_env(const std::string & name) {
+#if defined(_WIN32)
+    // the narrow getenv reads and converts with the active code page, which
+    // corrupts non-ASCII values, so read the environment as wide text
+    const wchar_t * value = _wgetenv(utf8_to_wstring(name).c_str());
+    return value == nullptr ? std::string() : wstring_to_utf8(value);
+#else
     const char * value = std::getenv(name.c_str());
-    return value == nullptr ? "" : value;
+    return value == nullptr ? std::string() : value;
+#endif
 }
 
 void common_set_env(const std::string & name, const std::string & value) {
 #if defined(_WIN32)
-    _putenv_s(name.c_str(), value.c_str());
+    // setting an empty value removes the variable, like on the other platforms
+    GGML_ASSERT(_wputenv_s(utf8_to_wstring(name).c_str(), utf8_to_wstring(value).c_str()) == 0);
 #else
     if (value.empty()) {
         unsetenv(name.c_str());
@@ -1129,7 +1164,7 @@ std::vector<common_file_info> fs_list(const std::string & path, bool include_dir
     std::vector<common_file_info> files;
     if (path.empty()) return files;
 
-    std::filesystem::path dir(path);
+    std::filesystem::path dir = std::filesystem::u8path(path);
     if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
         return files;
     }
@@ -1140,8 +1175,8 @@ std::vector<common_file_info> fs_list(const std::string & path, bool include_dir
             const auto & p = entry.path();
             if (std::filesystem::is_regular_file(p)) {
                 common_file_info info;
-                info.path   = p.string();
-                info.name   = p.filename().string();
+                info.path   = fs_path_to_utf8(p);
+                info.name   = fs_path_to_utf8(p.filename());
                 info.is_dir = false;
                 try {
                     info.size = static_cast<size_t>(std::filesystem::file_size(p));
@@ -1151,8 +1186,8 @@ std::vector<common_file_info> fs_list(const std::string & path, bool include_dir
                 files.push_back(std::move(info));
             } else if (include_directories && std::filesystem::is_directory(p)) {
                 common_file_info info;
-                info.path   = p.string();
-                info.name   = p.filename().string();
+                info.path   = fs_path_to_utf8(p);
+                info.name   = fs_path_to_utf8(p.filename());
                 info.size   = 0; // Directories have no size
                 info.is_dir = true;
                 files.push_back(std::move(info));
@@ -1168,11 +1203,12 @@ std::vector<common_file_info> fs_list(const std::string & path, bool include_dir
 
 std::ifstream fs_open_ifstream(const std::string & fname, std::ios_base::openmode mode) {
 #ifdef _WIN32
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, NULL, 0);
-    if (!wlen) { return std::ifstream(); }
-    std::vector<wchar_t> wfname(wlen);
-    (void)MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, wfname.data(), wlen);
-    return std::ifstream(wfname.data(), mode);
+    const std::wstring wfname = utf8_to_wstring(fname);
+    if (wfname.empty()) {
+        return std::ifstream();
+    }
+    // std::ifstream has no wchar_t constructor on MinGW, so go through fs::path
+    return std::ifstream(std::filesystem::path(wfname), mode);
 #else
     return std::ifstream(fname, mode);
 #endif
@@ -1571,13 +1607,14 @@ char * common_get_model_or_exit(int argc, char * argv[]) {
         return argv[1];
     }
 
-    char * path = getenv("LLAMACPP_TEST_MODELFILE");
-    if (!path || strlen(path) == 0) {
+    // returned as char *, so the string has to outlive this function
+    static std::string path = common_get_env("LLAMACPP_TEST_MODELFILE");
+    if (path.empty()) {
         fprintf(stderr, "\033[33mWARNING: No model file provided. Skipping this test. Set LLAMACPP_TEST_MODELFILE=<gguf_model_path> to silence this warning and run this test.\n\033[0m");
         exit(EXIT_SUCCESS);
     }
 
-    return path;
+    return path.data();
 }
 
 common_context_seq_rm_type common_context_can_seq_rm(llama_context * ctx) {
