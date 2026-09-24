@@ -16,6 +16,7 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 
 #if defined(_WIN32) && !defined(_WIN32_WINNT)
@@ -879,6 +880,19 @@ std::string string_from(const struct llama_context * ctx, const std::vector<llam
 std::string string_from(const struct llama_context * ctx, const struct llama_batch & batch);
 
 bool glob_match(const std::string & pattern, const std::string & str);
+
+//
+// Unicode utils
+//
+
+// strings crossing the wchar_t boundary on Windows are UTF-8 on the std::string side
+#ifdef _WIN32
+std::wstring utf8_to_wstring(const std::string & str);
+std::string  wstring_to_utf8(const std::wstring & str);
+#endif
+
+// paths in std::string are UTF-8; string() would convert with the active code page on Windows
+std::string fs_path_to_utf8(const std::filesystem::path & path);
 
 //
 // Environment utils
