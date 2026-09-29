@@ -38,6 +38,7 @@ enum handcrafted_file_type {
     HANDCRAFTED_TENSORS_BAD_N_DIMS         =  20 + offset_has_tensors,
     HANDCRAFTED_TENSORS_BAD_SHAPE          =  30 + offset_has_tensors,
     HANDCRAFTED_TENSORS_ZERO_DIM           =  35 + offset_has_tensors,
+    HANDCRAFTED_TENSORS_NE_WRAPS_TO_ZERO   =  36 + offset_has_tensors,
     HANDCRAFTED_TENSORS_NE_TOO_BIG         =  40 + offset_has_tensors,
     HANDCRAFTED_TENSORS_NBYTES_TOO_BIG     =  45 + offset_has_tensors,
     HANDCRAFTED_TENSORS_BAD_TYPE           =  50 + offset_has_tensors,
@@ -52,6 +53,7 @@ enum handcrafted_file_type {
     HANDCRAFTED_DATA_BAD_ALIGN             =  15 + offset_has_data,
     HANDCRAFTED_DATA_INCONSISTENT_ALIGN    =  20 + offset_has_data,
     HANDCRAFTED_DATA_MEM_SIZE_OVERFLOW     =  30 + offset_has_data,
+    HANDCRAFTED_DATA_PAD_SIZE_OVERFLOW     =  35 + offset_has_data,
     HANDCRAFTED_DATA_SUCCESS               = 800 + offset_has_data,
     HANDCRAFTED_DATA_CUSTOM_ALIGN          = 810 + offset_has_data,
 };
@@ -78,6 +80,7 @@ static std::string handcrafted_file_type_name(const enum handcrafted_file_type h
         case HANDCRAFTED_TENSORS_BAD_N_DIMS:         return "TENSORS_BAD_N_DIMS";
         case HANDCRAFTED_TENSORS_BAD_SHAPE:          return "TENSORS_BAD_SHAPE";
         case HANDCRAFTED_TENSORS_ZERO_DIM:           return "TENSORS_ZERO_DIM";
+        case HANDCRAFTED_TENSORS_NE_WRAPS_TO_ZERO:   return "TENSORS_NE_WRAPS_TO_ZERO";
         case HANDCRAFTED_TENSORS_NE_TOO_BIG:         return "TENSORS_NE_TOO_BIG";
         case HANDCRAFTED_TENSORS_NBYTES_TOO_BIG:     return "TENSORS_NBYTES_TOO_BIG";
         case HANDCRAFTED_TENSORS_BAD_TYPE:           return "TENSORS_BAD_TYPE";
@@ -92,6 +95,7 @@ static std::string handcrafted_file_type_name(const enum handcrafted_file_type h
         case HANDCRAFTED_DATA_BAD_ALIGN:             return "DATA_BAD_ALIGN";
         case HANDCRAFTED_DATA_INCONSISTENT_ALIGN:    return "DATA_INCONSISTENT_ALIGN";
         case HANDCRAFTED_DATA_MEM_SIZE_OVERFLOW:     return "DATA_MEM_SIZE_OVERFLOW";
+        case HANDCRAFTED_DATA_PAD_SIZE_OVERFLOW:     return "DATA_PAD_SIZE_OVERFLOW";
         case HANDCRAFTED_DATA_SUCCESS:               return "DATA_SUCCESS";
         case HANDCRAFTED_DATA_CUSTOM_ALIGN:          return "DATA_CUSTOM_ALIGN";
     }
@@ -241,6 +245,16 @@ static FILE * get_handcrafted_file(const unsigned int seed, const enum handcraft
     std::vector<tensor_config_t> tensor_configs;
     if (hft >= offset_has_tensors) {
         tensor_configs = get_tensor_configs(rng);
+    }
+
+    if (hft == HANDCRAFTED_TENSORS_NE_WRAPS_TO_ZERO) {
+        tensor_configs.resize(1);
+        tensor_configs[0] = { GGML_TYPE_F32, { (int64_t) 1 << 32, (int64_t) 1 << 31, 2, 1 } };
+    }
+
+    if (hft == HANDCRAFTED_DATA_PAD_SIZE_OVERFLOW) {
+        tensor_configs.resize(1);
+        tensor_configs[0] = { GGML_TYPE_F16, { INT64_MAX, 1, 1, 1 } };
     }
 
     if (hft == HANDCRAFTED_DATA_MEM_SIZE_OVERFLOW) {
@@ -455,6 +469,10 @@ static FILE * get_handcrafted_file(const unsigned int seed, const enum handcraft
             helper_write(file, bad_offset);
         } else {
             helper_write(file, offset);
+        }
+
+        if (hft == HANDCRAFTED_TENSORS_NE_WRAPS_TO_ZERO || hft == HANDCRAFTED_DATA_PAD_SIZE_OVERFLOW) {
+            continue;
         }
 
         int64_t ne = shape[0];
@@ -772,6 +790,7 @@ static std::pair<int, int> test_handcrafted_file(const unsigned int seed) {
         HANDCRAFTED_TENSORS_BAD_N_DIMS,
         HANDCRAFTED_TENSORS_BAD_SHAPE,
         HANDCRAFTED_TENSORS_ZERO_DIM,
+        HANDCRAFTED_TENSORS_NE_WRAPS_TO_ZERO,
         HANDCRAFTED_TENSORS_NE_TOO_BIG,
         HANDCRAFTED_TENSORS_NBYTES_TOO_BIG,
         HANDCRAFTED_TENSORS_BAD_TYPE,
@@ -786,6 +805,7 @@ static std::pair<int, int> test_handcrafted_file(const unsigned int seed) {
         HANDCRAFTED_DATA_BAD_ALIGN,
         HANDCRAFTED_DATA_INCONSISTENT_ALIGN,
         HANDCRAFTED_DATA_MEM_SIZE_OVERFLOW,
+        HANDCRAFTED_DATA_PAD_SIZE_OVERFLOW,
         HANDCRAFTED_DATA_SUCCESS,
         HANDCRAFTED_DATA_CUSTOM_ALIGN,
     };
