@@ -554,20 +554,20 @@ inline static void ggml_vec_mad_f16(const int n, ggml_fp16_t * GGML_RESTRICT y, 
         const int np = 0;
     #endif
 #elif defined(GGML_SIMD)
-    const int np = (n & ~(GGML_F16_STEP - 1));
+    const int np = (n & ~(GGML_F16_DOT_STEP - 1));
 
-    GGML_F16_VEC vx = GGML_F16_VEC_SET1(v);
+    GGML_F16_DOT_VEC vx = GGML_F16_DOT_VEC_SET1(v);
 
-    GGML_F16_VEC ax[GGML_F16_ARR];
-    GGML_F16_VEC ay[GGML_F16_ARR];
+    GGML_F16_DOT_VEC ax[GGML_F16_DOT_ARR];
+    GGML_F16_DOT_VEC ay[GGML_F16_DOT_ARR];
 
-    for (int i = 0; i < np; i += GGML_F16_STEP) {
-        for (int j = 0; j < GGML_F16_ARR; j++) {
-            ax[j] = GGML_F16_VEC_LOAD(x + i + j*GGML_F16_EPR, j);
-            ay[j] = GGML_F16_VEC_LOAD(y + i + j*GGML_F16_EPR, j);
-            ay[j] = GGML_F16_VEC_FMA(ay[j], ax[j], vx);
+    for (int i = 0; i < np; i += GGML_F16_DOT_STEP) {
+        for (int j = 0; j < GGML_F16_DOT_ARR; j++) {
+            ax[j] = GGML_F16_DOT_VEC_LOAD(x + i + j*GGML_F16_DOT_EPR, j);
+            ay[j] = GGML_F16_DOT_VEC_LOAD(y + i + j*GGML_F16_DOT_EPR, j);
+            ay[j] = GGML_F16_DOT_VEC_FMA(ay[j], ax[j], vx);
 
-            GGML_F16_VEC_STORE(y + i + j*GGML_F16_EPR, ay, j);
+            GGML_F16_DOT_VEC_STORE(y + i + j*GGML_F16_DOT_EPR, ay, j);
         }
     }
 #else
@@ -831,18 +831,18 @@ inline static void ggml_vec_scale_f16(const int n, ggml_fp16_t * y, const float 
         const int np = 0;
     #endif
 #elif defined(GGML_SIMD)
-    const int np = (n & ~(GGML_F16_STEP - 1));
+    const int np = (n & ~(GGML_F16_DOT_STEP - 1));
 
-    GGML_F16_VEC vx = GGML_F16_VEC_SET1(v);
+    GGML_F16_DOT_VEC vx = GGML_F16_DOT_VEC_SET1(v);
 
-    GGML_F16_VEC ay[GGML_F16_ARR];
+    GGML_F16_DOT_VEC ay[GGML_F16_DOT_ARR];
 
-    for (int i = 0; i < np; i += GGML_F16_STEP) {
-        for (int j = 0; j < GGML_F16_ARR; j++) {
-            ay[j] = GGML_F16_VEC_LOAD(y + i + j*GGML_F16_EPR, j);
-            ay[j] = GGML_F16_VEC_MUL(ay[j], vx);
+    for (int i = 0; i < np; i += GGML_F16_DOT_STEP) {
+        for (int j = 0; j < GGML_F16_DOT_ARR; j++) {
+            ay[j] = GGML_F16_DOT_VEC_LOAD(y + i + j*GGML_F16_DOT_EPR, j);
+            ay[j] = GGML_F16_DOT_VEC_MUL(ay[j], vx);
 
-            GGML_F16_VEC_STORE(y + i + j*GGML_F16_EPR, ay, j);
+            GGML_F16_DOT_VEC_STORE(y + i + j*GGML_F16_DOT_EPR, ay, j);
         }
     }
 #else

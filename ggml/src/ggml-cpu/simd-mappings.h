@@ -1315,7 +1315,7 @@ static inline void __lzs_f16cx4_store(ggml_fp16_t * x, float32x4_t v_y) {
 #endif
 
 // GGML_F16_DOT_*
-// like GGML_F16_* but for dot products which need F32 accumulation on AVX512-FP16
+// like GGML_F16_* but for operations that need F32 accumulation on AVX512-FP16
 
 #if defined(__AVX512FP16__)
 
@@ -1324,8 +1324,11 @@ static inline void __lzs_f16cx4_store(ggml_fp16_t * x, float32x4_t v_y) {
 #define GGML_F16_DOT_ARR            GGML_F32_ARR
 #define GGML_F16_DOT_VEC            GGML_F32x16
 #define GGML_F16_DOT_VEC_ZERO       GGML_F32x16_ZERO
+#define GGML_F16_DOT_VEC_SET1       GGML_F32x16_SET1
 #define GGML_F16_DOT_VEC_LOAD(p, i) _mm512_cvtph_ps(_mm256_loadu_si256((const __m256i *)(p)))
 #define GGML_F16_DOT_VEC_FMA        GGML_F32x16_FMA
+#define GGML_F16_DOT_VEC_MUL        GGML_F32x16_MUL
+#define GGML_F16_DOT_VEC_STORE(p, r, i) _mm256_storeu_si256((__m256i *)(p), _mm512_cvtps_ph((r)[i], 0))
 #define GGML_F16_DOT_VEC_REDUCE     GGML_F32x16_REDUCE
 
 #else
@@ -1335,8 +1338,11 @@ static inline void __lzs_f16cx4_store(ggml_fp16_t * x, float32x4_t v_y) {
 #define GGML_F16_DOT_ARR            GGML_F16_ARR
 #define GGML_F16_DOT_VEC            GGML_F16_VEC
 #define GGML_F16_DOT_VEC_ZERO       GGML_F16_VEC_ZERO
+#define GGML_F16_DOT_VEC_SET1       GGML_F16_VEC_SET1
 #define GGML_F16_DOT_VEC_LOAD       GGML_F16_VEC_LOAD
 #define GGML_F16_DOT_VEC_FMA        GGML_F16_VEC_FMA
+#define GGML_F16_DOT_VEC_MUL        GGML_F16_VEC_MUL
+#define GGML_F16_DOT_VEC_STORE      GGML_F16_VEC_STORE
 #define GGML_F16_DOT_VEC_REDUCE     GGML_F16_VEC_REDUCE
 
 #endif // defined(__AVX512FP16__)
