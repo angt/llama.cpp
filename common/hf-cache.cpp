@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <stdexcept>
+#include <vector>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -162,8 +163,12 @@ static bool is_valid_oid(const std::string & oid) {
 }
 
 static bool is_valid_subpath(const fs::path & path, const fs::path & subpath) {
-    if (subpath.is_absolute()) {
+    if (subpath.empty() || subpath.is_absolute()) {
         return false; // never do a / b with b absolute
+    }
+    const fs::path name = subpath.filename();
+    if (name.empty() || name == "." || name == "..") {
+        return false; // must name an entry, not a directory
     }
     auto b = fs::absolute(path).lexically_normal();
     auto t = (b / subpath).lexically_normal();
@@ -380,7 +385,7 @@ static std::string get_cached_ref(const fs::path & repo_path) {
     return fallback;
 }
 
-hf_files get_cached_files(const std::string & repo_id) {
+hf_files get_cached_files(const std::string & repo_id, std::string * commit) {
     const fs::path cache_path = get_cache_directory();
     if (!fs::exists(cache_path)) {
         return {};
@@ -410,11 +415,14 @@ hf_files get_cached_files(const std::string & repo_id) {
         if (!repo_id.empty() && _repo_id != repo_id) {
             continue;
         }
-        std::string commit = get_cached_ref(repo.path());
-        fs::path commit_path = snapshots_path / commit;
+        std::string commit_found = get_cached_ref(repo.path());
+        fs::path commit_path = snapshots_path / commit_found;
 
-        if (commit.empty() || !fs::is_directory(commit_path)) {
+        if (commit_found.empty() || !fs::is_directory(commit_path)) {
             continue;
+        }
+        if (commit && _repo_id == repo_id) {
+            *commit = commit_found;
         }
         for (const auto & entry : fs::recursive_directory_iterator(commit_path)) {
             if (!entry.is_regular_file() && !entry.is_symlink()) {
@@ -493,6 +501,155 @@ bool remove_cached_repo(const std::string & repo_id) {
         return false;
     }
     return removed > 0;
+}
+
+// true if the error just means the path is gone
+static bool is_gone(const std::error_code & ec) {
+    return ec == std::errc::no_such_file_or_directory;
+}
+
+// The blob a snapshot symlink points at, or an empty path if it has none.
+// Only targets inside the repo's blobs dir count; anything unreadable throws.
+static fs::path symlink_blob_candidate(const fs::path & link, const fs::path & blobs_dir) {
+    fs::path target = fs::read_symlink(link);
+    // resolve against the link's dir, never normalize: ".." is the filesystem's job
+    target = target.is_absolute() ? target : link.parent_path() / target;
+
+    bool in_blobs = false;
+    try {
+        in_blobs = fs::equivalent(target.parent_path(), blobs_dir);
+    } catch (const fs::filesystem_error & e) {
+        if (e.code() != std::errc::no_such_file_or_directory) {
+            throw;
+        }
+        return {}; // dangling link: no blob to reclaim
+    }
+    const std::string name = fs_path_to_utf8(target.filename());
+    return in_blobs && is_valid_oid(name) ? blobs_dir / fs::u8path(name) : fs::path();
+}
+
+// True if any directory between the cache dir and the entry is a symlink.
+// Also true when the check fails: never delete through doubt.
+static bool has_symlinked_parent(const fs::path & cache, const fs::path & entry) {
+    std::error_code ec;
+    fs::path cur = cache;
+    for (const auto & part : entry.parent_path().lexically_relative(cache)) {
+        if (part == ".") {
+            continue; // the cache dir itself is trusted
+        }
+        cur /= part;
+        if (fs::is_symlink(cur, ec)) {
+            return true;
+        }
+        if (ec) {
+            LOG_WRN("%s: cannot check %s: %s\n", __func__, fs_path_to_utf8(cur).c_str(), ec.message().c_str());
+            return true;
+        }
+    }
+    return false;
+}
+
+// Return true if some snapshot entry references the blob, or if we cannot
+// rule it out. Inspection failures throw; the caller keeps the blob.
+static bool is_blob_referenced(const fs::path & snapshots_dir, const fs::path & blob) {
+    for (fs::recursive_directory_iterator it(snapshots_dir), end; it != end; ++it) {
+        std::error_code link_ec;
+        if (!it->is_symlink(link_ec)) {
+            if (link_ec && !is_gone(link_ec)) {
+                throw fs::filesystem_error("cannot inspect entry", it->path(), link_ec);
+            }
+            continue;
+        }
+        const auto st = fs::status(it->path());
+        if (st.type() == fs::file_type::not_found) {
+            continue; // dangling link: not a blob reference
+        }
+        if (!fs::is_regular_file(st) || fs::equivalent(it->path(), blob)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool remove_cached_files(const std::string & repo_id, const std::string & commit, const std::vector<std::string> & files) {
+    if (files.empty() || !is_valid_commit(commit)) {
+        return false;
+    }
+
+    if (!is_valid_repo_id(repo_id)) {
+        LOG_WRN("%s: invalid repository: %s\n", __func__, repo_id.c_str());
+        return false;
+    }
+
+    const fs::path cache = get_cache_directory();
+    const fs::path repo_path = get_repo_path(repo_id);
+    const fs::path snapshots_dir = repo_path / "snapshots";
+    const fs::path blobs_dir = repo_path / "blobs";
+    const fs::path commit_path = snapshots_dir / commit;
+
+    // remove the snapshot entries, keeping the blob of each removed symlink
+    bool removed = false;
+    std::vector<fs::path> blob_candidates;
+    for (const auto & file : files) {
+        const fs::path subpath = fs::u8path(file);
+        if (!is_valid_subpath(commit_path, subpath)) {
+            LOG_WRN("%s: skip invalid path: %s\n", __func__, file.c_str());
+            continue;
+        }
+        const fs::path entry = commit_path / subpath;
+        if (has_symlinked_parent(cache, entry)) {
+            LOG_WRN("%s: skip %s: symlinked parent\n", __func__, fs_path_to_utf8(entry).c_str());
+            continue;
+        }
+        // read the link before unlinking the entry
+        std::error_code ec;
+        const bool is_link = fs::is_symlink(entry, ec);
+        if (ec) {
+            LOG_WRN("%s: skip %s: %s\n", __func__, fs_path_to_utf8(entry).c_str(), ec.message().c_str());
+            continue; // cannot inspect: never delete on doubt
+        }
+        fs::path blob;
+        if (is_link) {
+            try {
+                blob = symlink_blob_candidate(entry, blobs_dir);
+            } catch (const fs::filesystem_error & e) {
+                LOG_WRN("%s: skip %s: %s\n", __func__, fs_path_to_utf8(entry).c_str(), e.what());
+                continue; // cannot inspect: never delete on doubt
+            }
+        }
+        if (fs::remove(entry, ec)) {
+            removed = true;
+            if (!blob.empty()) {
+                blob_candidates.push_back(blob);
+            }
+        } else if (ec) {
+            LOG_WRN("%s: failed to remove %s: %s\n", __func__, fs_path_to_utf8(entry).c_str(), ec.message().c_str());
+        }
+    }
+
+    // reclaim blobs no remaining revision references; keep them on any doubt
+    for (const auto & blob : blob_candidates) {
+        try {
+            if (is_blob_referenced(snapshots_dir, blob)) {
+                continue;
+            }
+        } catch (const fs::filesystem_error & e) {
+            LOG_WRN("%s: reference scan failed for %s, keeping blobs: %s\n", __func__, repo_id.c_str(), e.what());
+            continue;
+        }
+        if (has_symlinked_parent(cache, blob)) {
+            LOG_WRN("%s: skip %s: symlinked parent\n", __func__, fs_path_to_utf8(blob).c_str());
+            continue;
+        }
+        std::error_code ec;
+        if (fs::remove(blob, ec)) {
+            removed = true;
+        } else if (ec) {
+            LOG_WRN("%s: failed to remove %s: %s\n", __func__, fs_path_to_utf8(blob).c_str(), ec.message().c_str());
+        }
+    }
+
+    return removed;
 }
 
 } // namespace hf_cache
