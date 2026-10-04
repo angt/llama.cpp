@@ -3099,7 +3099,7 @@ struct ggml_hexagon_opbatch {
         std::vector<int> order(n_bufs);
         for (unsigned int i = 0; i < n_bufs; i++) { order[i] = (int) i; }
 
-        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+        std::sort(order.begin(), order.end(), [&](int a, int b) {
             return h_bufs[a].size > h_bufs[b].size;
         });
 

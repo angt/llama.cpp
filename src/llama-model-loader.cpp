@@ -1611,7 +1611,7 @@ bool llama_model_loader::load_all_data(
     // without mmap, tensors in non-host buffers are staged through a temporary buffer sized like the tensor
     // load them biggest-first so the largest staging buffer is allocated while the fewest weights are resident
     if (!use_mmap) {
-        std::stable_sort(tensors.begin(), tensors.end(), [](const ggml_tensor * a, const ggml_tensor * b) {
+        std::sort(tensors.begin(), tensors.end(), [](const ggml_tensor * a, const ggml_tensor * b) {
             const bool staged_a = a->buffer && !ggml_backend_buffer_is_host(a->buffer);
             const bool staged_b = b->buffer && !ggml_backend_buffer_is_host(b->buffer);
             if (staged_a != staged_b) {

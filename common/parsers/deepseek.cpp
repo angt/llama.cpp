@@ -1,5 +1,7 @@
 #include "parsers.h"
 
+#include <map>
+
 // The DeepSeek V4 reference implementation renders consecutive tool results into a single
 // user block, ordered by the tool call order of the preceding assistant message (matched
 // by tool call id) rather than by the order they appear in the conversation.
@@ -43,20 +45,18 @@ static json deepseek_v4_sort_tool_results(const json & messages) {
         }
 
         if (tool_positions.size() > 1 && !call_order.empty()) {
-            std::vector<json> results;
-            results.reserve(tool_positions.size());
+            const auto order = [&](const json & m) {
+                auto it = call_order.find(m.value("tool_call_id", ""));
+                return it == call_order.end() ? (size_t) 0 : it->second;
+            };
+            // multimap keeps the conversation order of entries with equal call order
+            std::multimap<size_t, json> sorted;
             for (auto pos : tool_positions) {
-                results.push_back(adjusted[pos]);
+                sorted.emplace(order(adjusted[pos]), std::move(adjusted[pos]));
             }
-            std::stable_sort(results.begin(), results.end(), [&](const json & a, const json & b) {
-                const auto order = [&](const json & m) {
-                    auto it = call_order.find(m.value("tool_call_id", ""));
-                    return it == call_order.end() ? (size_t) 0 : it->second;
-                };
-                return order(a) < order(b);
-            });
-            for (size_t k = 0; k < tool_positions.size(); k++) {
-                adjusted[tool_positions[k]] = std::move(results[k]);
+            size_t k = 0;
+            for (const auto & it : sorted) {
+                adjusted[tool_positions[k++]] = it.second;
             }
         }
 
