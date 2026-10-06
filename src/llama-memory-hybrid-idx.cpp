@@ -183,6 +183,11 @@ llama_pos llama_memory_hybrid_idx::mem_idx_stale_pos(llama_seq_id seq_id, llama_
 }
 
 bool llama_memory_hybrid_idx::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
+    // seq_id < 0 : match any sequence
+    if (seq_id >= 0 && !seq_id_ok(seq_id, __func__)) {
+        return false;
+    }
+
     // same order as llama_memory_hybrid::seq_rm: the recurrent cache can refuse, so try it first
     if (!get_mem_recr()->seq_rm(seq_id, p0, p1)) {
         return false;
@@ -201,6 +206,10 @@ void llama_memory_hybrid_idx::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_i
     // only whole sequences are copied: the recurrent state ignores the range, and a shared cell holds a single pool grouping
     GGML_ASSERT(p0 <= 0 && p1 < 0 && "partial seq_cp is not supported");
 
+    if (!seq_cp_ok(seq_id_src, seq_id_dst, __func__)) {
+        return;
+    }
+
     llama_memory_hybrid::seq_cp(seq_id_src, seq_id_dst, p0, p1);
 
     if (mem_idx) {
@@ -212,6 +221,10 @@ void llama_memory_hybrid_idx::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_i
 }
 
 void llama_memory_hybrid_idx::seq_keep(llama_seq_id seq_id) {
+    if (!seq_id_ok(seq_id, __func__)) {
+        return;
+    }
+
     llama_memory_hybrid::seq_keep(seq_id);
 
     if (mem_idx) {
@@ -222,6 +235,10 @@ void llama_memory_hybrid_idx::seq_keep(llama_seq_id seq_id) {
 }
 
 void llama_memory_hybrid_idx::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, llama_pos shift) {
+    if (!seq_id_ok(seq_id, __func__)) {
+        return;
+    }
+
     llama_memory_hybrid::seq_add(seq_id, p0, p1, shift);
 
     if (mem_idx) {
@@ -233,6 +250,10 @@ void llama_memory_hybrid_idx::seq_add(llama_seq_id seq_id, llama_pos p0, llama_p
 }
 
 void llama_memory_hybrid_idx::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, int d) {
+    if (!seq_id_ok(seq_id, __func__)) {
+        return;
+    }
+
     llama_memory_hybrid::seq_div(seq_id, p0, p1, d);
 
     if (mem_idx) {

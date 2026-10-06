@@ -83,6 +83,16 @@ public:
     llama_kv_cache * get_mem_attn() const;
     llama_memory_recurrent * get_mem_recr() const;
 
+protected:
+    // validate the seq_id before any cache is mutated - a refused id must not mutate one
+    // cache and skip the other. the accepted range follows the KV mapping: [0, LLAMA_MAX_SEQ)
+    // when the KV cache is unified, [0, n_seq_max) otherwise
+    bool seq_id_ok(llama_seq_id seq_id, const char * func) const;
+
+    // a copy needs a source and a destination that every cache can store - the recurrent
+    // cache keeps one state slot per sequence, so its range is [0, n_seq_max)
+    bool seq_cp_ok(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, const char * func) const;
+
 private:
     const llama_hparams & hparams;
 

@@ -57,7 +57,8 @@ llama_memory_hybrid::llama_memory_hybrid(
         type_s,
         offload,
         rs_size,
-        n_seq_max,
+        // the same seq-id range as the unified KV cache mapping: it reaches LLAMA_MAX_SEQ
+        unified ? LLAMA_MAX_SEQ : n_seq_max,
         n_rs_seq,
         filter_recr == nullptr ?
             [&](int32_t il) { return hparams.is_recr(il); }
@@ -140,7 +141,39 @@ void llama_memory_hybrid::clear(bool data) {
     mem_recr->clear(data);
 }
 
+bool llama_memory_hybrid::seq_id_ok(llama_seq_id seq_id, const char * func) const {
+    // the accepted range follows the KV mapping: unified caches reach LLAMA_MAX_SEQ
+    const uint32_t n_seq_lim = mem_attn->get_n_stream() == 1 ? LLAMA_MAX_SEQ : mem_attn->get_n_seq_max();
+
+    if (seq_id >= 0 && (uint32_t) seq_id < n_seq_lim) {
+        return true;
+    }
+
+    LLAMA_LOG_ERROR("%s: invalid seq_id %d, expected seq_id in [0, %u)\n", func, seq_id, n_seq_lim);
+
+    return false;
+}
+
+bool llama_memory_hybrid::seq_cp_ok(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, const char * func) const {
+    const uint32_t n_seq = mem_attn->get_n_seq_max();
+
+    if (seq_id_src >= 0 && seq_id_dst >= 0 &&
+            (uint32_t) seq_id_src < n_seq && (uint32_t) seq_id_dst < n_seq) {
+        return true;
+    }
+
+    LLAMA_LOG_ERROR("%s: invalid seq_id (%d -> %d), seq_cp requires seq_id in [0, %u)\n",
+            func, seq_id_src, seq_id_dst, n_seq);
+
+    return false;
+}
+
 bool llama_memory_hybrid::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
+    // seq_id < 0 : match any sequence
+    if (seq_id >= 0 && !seq_id_ok(seq_id, __func__)) {
+        return false;
+    }
+
     // Try removing from the recurrent cache first since it may fail. If it does
     // fail, the cache will not have been mutated.
     if (!mem_recr->seq_rm(seq_id, p0, p1)) {
@@ -150,21 +183,37 @@ bool llama_memory_hybrid::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1
 }
 
 void llama_memory_hybrid::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, llama_pos p0, llama_pos p1) {
+    if (!seq_cp_ok(seq_id_src, seq_id_dst, __func__)) {
+        return;
+    }
+
     mem_attn->seq_cp(seq_id_src, seq_id_dst, p0, p1);
     mem_recr->seq_cp(seq_id_src, seq_id_dst, p0, p1);
 }
 
 void llama_memory_hybrid::seq_keep(llama_seq_id seq_id) {
+    if (!seq_id_ok(seq_id, __func__)) {
+        return;
+    }
+
     mem_attn->seq_keep(seq_id);
     mem_recr->seq_keep(seq_id);
 }
 
 void llama_memory_hybrid::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, llama_pos shift) {
+    if (!seq_id_ok(seq_id, __func__)) {
+        return;
+    }
+
     mem_attn->seq_add(seq_id, p0, p1, shift);
     mem_recr->seq_add(seq_id, p0, p1, shift);
 }
 
 void llama_memory_hybrid::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, int d) {
+    if (!seq_id_ok(seq_id, __func__)) {
+        return;
+    }
+
     mem_attn->seq_div(seq_id, p0, p1, d);
     mem_recr->seq_div(seq_id, p0, p1, d);
 }

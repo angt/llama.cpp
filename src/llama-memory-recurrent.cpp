@@ -183,6 +183,14 @@ bool llama_memory_recurrent::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos
     }
 
     const bool rm_all = p0 == 0 && p1 == std::numeric_limits<llama_pos>::max();
+
+    // full wildcard removal: clear() also resets the per-sequence tails and the rollback
+    // index, which the cell loop below would leave dangling
+    if (seq_id < 0 && rm_all) {
+        clear(false);
+        return true;
+    }
+
     if (rm_all) {
         set_rs_idx(seq_id, 0);
     }
@@ -190,8 +198,8 @@ bool llama_memory_recurrent::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos
     // models like Mamba or RWKV can't have a state partially erased at the end
     // of the sequence because their state isn't preserved for previous tokens
     if (seq_id >= (int64_t) size) {
-        // could be fatal
-        return false;
+        // no state slot for this sequence - it can only be empty here, so nothing to remove
+        return true;
     }
     if (0 <= seq_id) {
         int32_t & tail_id = cells[seq_id].tail;
@@ -582,7 +590,7 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
             if (seq_id < 0 || (uint32_t) seq_id >= size) {
                 // too big seq_id
                 // TODO: would it be possible to resize the cache instead?
-                LLAMA_LOG_ERROR("%s: seq_id=%d >= n_seq_max=%u Try using a bigger --parallel value\n", __func__, seq_id, n_seq_max);
+                LLAMA_LOG_ERROR("%s: seq_id=%d >= n_seq_max=%u Try using a bigger --parallel value\n", __func__, seq_id, size);
                 return false;
             }
             if (j > 0) {
@@ -1116,8 +1124,9 @@ bool llama_memory_recurrent::state_read_meta(llama_io_read_i & io, uint32_t cell
                 llama_seq_id seq_id;
                 io.read(&seq_id, sizeof(seq_id));
 
-                if (seq_id < 0 || (uint32_t) seq_id >= this->n_seq_max) {
-                    LLAMA_LOG_ERROR("%s: invalid seq_id, %d is out of range [0, %u)\n", __func__, seq_id, this->n_seq_max);
+                // the tail table is indexed by seq_id (cells[seq_id].tail), so the id must fit the cache
+                if (seq_id < 0 || (uint32_t) seq_id >= size) {
+                    LLAMA_LOG_ERROR("%s: invalid seq_id, %d is out of range [0, %u)\n", __func__, seq_id, size);
                     return false;
                 }
 

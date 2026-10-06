@@ -2680,7 +2680,8 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                             GGML_TYPE_F32,
                             cparams.offload_kqv,
                             std::max((uint32_t) 1, cparams.n_seq_max),
-                            cparams.n_seq_max,
+                            // the same seq-id range as the unified KV cache mapping: it reaches LLAMA_MAX_SEQ
+                            cparams.kv_unified ? LLAMA_MAX_SEQ : cparams.n_seq_max,
                             cparams.n_rs_seq,
                             nullptr);
                 } else if (llm_arch_is_hybrid(arch) && !mtp_on_hybrid_qwen && !mtp_on_hybrid_nemotron) {
