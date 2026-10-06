@@ -403,8 +403,11 @@ bool llama_kv_cache::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
         return true;
     }
 
-    // TODO: fix incosistent handling of `seq_id < 0` and `seq_id == -1` in the codebase [TAG_LLAMA_SEQ_ID_NEG]
-    GGML_ASSERT(seq_id == -1 || (seq_id >= 0 && (size_t) seq_id < seq_to_stream.size()));
+    // seq_id < 0 : match any sequence
+    if (seq_id >= 0 && (size_t) seq_id >= seq_to_stream.size()) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id %d (n_seq_max = %zu)\n", __func__, seq_id, seq_to_stream.size());
+        return false;
+    }
 
     if (p0 < 0) {
         p0 = 0;
@@ -472,8 +475,13 @@ void llama_kv_cache::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, ll
         return;
     }
 
-    GGML_ASSERT(seq_id_src >= 0 && (size_t) seq_id_src < seq_to_stream.size());
-    GGML_ASSERT(seq_id_dst >= 0 && (size_t) seq_id_dst < seq_to_stream.size());
+    // seq_cp requires two concrete sequences
+    if (seq_id_src < 0 || seq_id_dst < 0 ||
+            (size_t) seq_id_src >= seq_to_stream.size() || (size_t) seq_id_dst >= seq_to_stream.size()) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id (%d -> %d), seq_cp requires seq_id in [0, %zu)\n",
+                __func__, seq_id_src, seq_id_dst, seq_to_stream.size());
+        return;
+    }
 
     const auto s0 = seq_to_stream[seq_id_src];
     const auto s1 = seq_to_stream[seq_id_dst];
@@ -564,24 +572,32 @@ void llama_kv_cache::seq_keep(llama_seq_id seq_id) {
         return;
     }
 
-    GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < seq_to_stream.size());
-
-    auto & cells = v_cells[seq_to_stream[seq_id]];
-    auto & head  = v_heads[seq_to_stream[seq_id]];
-
-    uint32_t new_head = cells.size();
-
-    for (uint32_t i = 0; i < cells.size(); ++i) {
-        if (cells.seq_keep(i, seq_id)) {
-            if (new_head == cells.size()) {
-                new_head = i;
-            }
-        }
+    // seq_keep requires a concrete sequence
+    if (seq_id < 0 || (size_t) seq_id >= seq_to_stream.size()) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id %d (n_seq_max = %zu)\n", __func__, seq_id, seq_to_stream.size());
+        return;
     }
 
-    // If we freed up a slot, set head to it so searching can start there.
-    if (new_head != cells.size() && new_head < head) {
-        head = new_head;
+    // keep only seq_id in every stream: with per-sequence streams the cells of the other
+    // sequences live in other streams and have to be removed as well
+    for (uint32_t s = 0; s < n_stream; ++s) {
+        auto & cells = v_cells[s];
+        auto & head  = v_heads[s];
+
+        uint32_t new_head = cells.size();
+
+        for (uint32_t i = 0; i < cells.size(); ++i) {
+            if (cells.seq_keep(i, seq_id)) {
+                if (new_head == cells.size()) {
+                    new_head = i;
+                }
+            }
+        }
+
+        // If we freed up a slot, set head to it so searching can start there.
+        if (new_head != cells.size() && new_head < head) {
+            head = new_head;
+        }
     }
 }
 
@@ -591,7 +607,11 @@ void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, ll
         return;
     }
 
-    GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < seq_to_stream.size());
+    // seq_add requires a concrete sequence
+    if (seq_id < 0 || (size_t) seq_id >= seq_to_stream.size()) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id %d (n_seq_max = %zu)\n", __func__, seq_id, seq_to_stream.size());
+        return;
+    }
     GGML_ASSERT(hparams.n_pos_per_embd() == 1 && "seq_add() is only supported for n_pos_per_embd() == 1");
 
     auto & cells = v_cells[seq_to_stream[seq_id]];
@@ -641,7 +661,11 @@ void llama_kv_cache::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, in
         return;
     }
 
-    GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < seq_to_stream.size());
+    // seq_div requires a concrete sequence
+    if (seq_id < 0 || (size_t) seq_id >= seq_to_stream.size()) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id %d (n_seq_max = %zu)\n", __func__, seq_id, seq_to_stream.size());
+        return;
+    }
     GGML_ASSERT(hparams.n_pos_per_embd() == 1 && "seq_div() is only supported for n_pos_per_embd() == 1");
 
     auto & cells = v_cells[seq_to_stream[seq_id]];
@@ -680,7 +704,10 @@ llama_pos llama_kv_cache::seq_pos_min(llama_seq_id seq_id) const {
         return other->seq_pos_min(seq_id);
     }
 
-    GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < seq_to_stream.size());
+    // seq_pos_min requires a concrete sequence - return -1 as documented
+    if (seq_id < 0 || (size_t) seq_id >= seq_to_stream.size()) {
+        return -1;
+    }
 
     const auto & cells = v_cells[seq_to_stream[seq_id]];
 
@@ -693,7 +720,10 @@ llama_pos llama_kv_cache::seq_pos_max(llama_seq_id seq_id) const {
         return other->seq_pos_max(seq_id);
     }
 
-    GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < seq_to_stream.size());
+    // seq_pos_max requires a concrete sequence - return -1 as documented
+    if (seq_id < 0 || (size_t) seq_id >= seq_to_stream.size()) {
+        return -1;
+    }
 
     const auto & cells = v_cells[seq_to_stream[seq_id]];
 
@@ -2093,10 +2123,10 @@ void llama_kv_cache::state_write(llama_io_write_i & io, llama_seq_id seq_id, lla
             bool add_cell = true;
 
             add_cell = add_cell && !cells.is_empty(i);
-            add_cell = add_cell && (seq_id == -1 || cells.seq_has(i, seq_id));
+            add_cell = add_cell && (seq_id < 0 || cells.seq_has(i, seq_id));
 
             // check the cell is not SWA-masked
-            if (add_cell && seq_id != -1) {
+            if (add_cell && seq_id >= 0) {
                 const bool is_masked = llama_hparams::is_masked_swa(n_swa, swa_type, cells.pos_get(i), cells.seq_pos_max(seq_id));
 
                 add_cell = !is_masked;
@@ -2155,8 +2185,10 @@ const slot_info_vec_t *   sinfos_in) {
 
     GGML_UNUSED(flags);
 
-    // TODO: fix incosistent handling of `seq_id < 0` and `seq_id == -1` in the codebase [TAG_LLAMA_SEQ_ID_NEG]
-    GGML_ASSERT(seq_id == -1 || (seq_id >= 0 && (size_t) seq_id < seq_to_stream.size()));
+    // seq_id < 0 : match any sequence
+    if (seq_id >= 0 && (size_t) seq_id >= seq_to_stream.size()) {
+        throw std::runtime_error("invalid seq_id " + std::to_string(seq_id));
+    }
 
     if (sinfos_out) {
         sinfos_out->assign(n_stream, slot_info{});
@@ -2174,7 +2206,7 @@ const slot_info_vec_t *   sinfos_in) {
 
     // a whole-context restore replaces every stream, so the cache is emptied once here
     // clear() resets all streams at once, so doing it per stream below would keep only the last one
-    if (seq_id == -1) {
+    if (seq_id < 0) {
         clear(true);
     }
 
@@ -2190,7 +2222,7 @@ const slot_info_vec_t *   sinfos_in) {
             continue;
         }
 
-        const uint32_t strm = seq_id == -1 ? s : seq_to_stream[seq_id];
+        const uint32_t strm = seq_id < 0 ? s : seq_to_stream[seq_id];
 
         slot_info sinfo;
 
@@ -2222,7 +2254,7 @@ void llama_kv_cache::state_write_meta(llama_io_write_i & io, const cell_ranges_t
             std::vector<llama_seq_id> seq_ids;
 
             for (llama_seq_id cur = 0; cur < (int) n_seq_max; ++cur) {
-                if (cur == seq_id || seq_id == -1) {
+                if (cur == seq_id || seq_id < 0) {
                     if (cells.seq_has(i, cur)) {
                         seq_ids.push_back(cur);
                     }
@@ -2352,7 +2384,7 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
     auto & cells = v_cells[strm];
     auto & head  = v_heads[strm];
 
-    if (dest_seq_id != -1) {
+    if (dest_seq_id >= 0) {
         // single sequence
         if (cell_count > cells.size()) {
             LLAMA_LOG_ERROR("%s: not enough cells in kv cache\n", __func__);
@@ -2697,12 +2729,16 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
 }
 
 void llama_kv_cache::state_clear(llama_seq_id seq_id) {
-    if (seq_id == -1) {
+    // seq_id < 0 : match any sequence
+    if (seq_id < 0) {
         clear(true);
         return;
     }
 
-    GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < seq_to_stream.size());
+    if ((size_t) seq_id >= seq_to_stream.size()) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id %d (n_seq_max = %zu)\n", __func__, seq_id, seq_to_stream.size());
+        return;
+    }
 
     const uint32_t strm = seq_to_stream[seq_id];
 
@@ -2726,7 +2762,8 @@ void llama_kv_cache::state_clear(llama_seq_id seq_id) {
 
 // the cleared ranges mirror the write pattern of state_read_data() - keep both in sync
 void llama_kv_cache::state_clear(llama_seq_id seq_id, uint32_t strm, const slot_info & sinfo) {
-    if (seq_id == -1) {
+    // seq_id < 0 : match any sequence
+    if (seq_id < 0) {
         clear(true);
         return;
     }

@@ -755,7 +755,7 @@ extern "C" {
 
     // Removes all tokens that belong to the specified sequence and have positions in [p0, p1)
     // Returns false if a partial sequence cannot be removed. Removing a whole sequence never fails
-    // seq_id < 0 : match any sequence [TAG_LLAMA_SEQ_ID_NEG]
+    // seq_id < 0 : match any sequence
     // p0 < 0     : [0,  p1]
     // p1 < 0     : [p0, inf)
     LLAMA_API bool llama_memory_seq_rm(
@@ -765,6 +765,7 @@ extern "C" {
                  llama_pos p1);
 
     // Copy all tokens that belong to the specified sequence to another sequence
+    // seq_id_src and seq_id_dst must be >= 0
     // p0 < 0 : [0,  p1]
     // p1 < 0 : [p0, inf)
     LLAMA_API void llama_memory_seq_cp(
@@ -775,11 +776,13 @@ extern "C" {
                  llama_pos p1);
 
     // Removes all tokens that do not belong to the specified sequence
+    // seq_id must be >= 0
     LLAMA_API void llama_memory_seq_keep(
             llama_memory_t mem,
               llama_seq_id seq_id);
 
     // Adds relative position "delta" to all tokens that belong to the specified sequence and have positions in [p0, p1)
+    // seq_id must be >= 0
     // p0 < 0 : [0,  p1]
     // p1 < 0 : [p0, inf)
     LLAMA_API void llama_memory_seq_add(
@@ -790,6 +793,7 @@ extern "C" {
                  llama_pos delta);
 
     // Integer division of the positions by factor of `d > 1`
+    // seq_id must be >= 0
     // p0 < 0 : [0,  p1]
     // p1 < 0 : [p0, inf)
     LLAMA_API void llama_memory_seq_div(
@@ -802,14 +806,16 @@ extern "C" {
     // Returns the smallest position present in the memory for the specified sequence
     // This is typically non-zero only for SWA caches
     // Note that all positions in the range [pos_min, pos_max] are guaranteed to be present in the memory
-    // Return -1 if the sequence is empty
+    // seq_id must be >= 0
+    // Return -1 if the sequence is empty or seq_id is invalid
     LLAMA_API llama_pos llama_memory_seq_pos_min(
             llama_memory_t mem,
               llama_seq_id seq_id);
 
     // Returns the largest position present in the memory for the specified sequence
     // Note that all positions in the range [pos_min, pos_max] are guaranteed to be present in the memory
-    // Return -1 if the sequence is empty
+    // seq_id must be >= 0
+    // Return -1 if the sequence is empty or seq_id is invalid
     LLAMA_API llama_pos llama_memory_seq_pos_max(
             llama_memory_t mem,
               llama_seq_id seq_id);
@@ -879,11 +885,13 @@ extern "C" {
         "use llama_state_save_file instead");
 
     // Get the exact size needed to copy the state of a single sequence
+    // seq_id < 0 : the whole state (all sequences)
     LLAMA_API size_t llama_state_seq_get_size(
             struct llama_context * ctx,
                     llama_seq_id   seq_id);
 
     // Copy the state of a single sequence into the specified buffer
+    // seq_id < 0 : the whole state (all sequences)
     LLAMA_API size_t llama_state_seq_get_data(
             struct llama_context * ctx,
                          uint8_t * dst,
@@ -891,6 +899,7 @@ extern "C" {
                     llama_seq_id   seq_id);
 
     // Copy the sequence data (originally copied with `llama_state_seq_get_data`) into the specified sequence
+    // seq_id < 0 : restore the whole state (all sequences)
     // Returns:
     //  - Positive: Ok
     //  - Zero: Failed to load
@@ -900,6 +909,7 @@ extern "C" {
                           size_t   size,
                     llama_seq_id   dest_seq_id);
 
+    // seq_id < 0 : the whole state (all sequences)
     LLAMA_API size_t llama_state_seq_save_file(
             struct llama_context * ctx,
                       const char * filepath,
@@ -907,6 +917,7 @@ extern "C" {
                const llama_token * tokens,
                           size_t   n_token_count);
 
+    // seq_id < 0 : restore the whole state (all sequences)
     // If tokens_out is NULL, only the token count is reported through n_token_count_out and no state is loaded
     LLAMA_API size_t llama_state_seq_load_file(
             struct llama_context * ctx,
@@ -930,11 +941,13 @@ extern "C" {
 
     typedef uint32_t llama_state_seq_flags;
 
+    // seq_id < 0 : the whole state (all sequences)
     LLAMA_API size_t llama_state_seq_get_size_ext(
             struct llama_context * ctx,
                     llama_seq_id   seq_id,
            llama_state_seq_flags   flags);
 
+    // seq_id < 0 : the whole state (all sequences)
     LLAMA_API size_t llama_state_seq_get_data_ext(
             struct llama_context * ctx,
                          uint8_t * dst,
@@ -942,6 +955,7 @@ extern "C" {
                     llama_seq_id   seq_id,
            llama_state_seq_flags   flags);
 
+    // seq_id < 0 : restore the whole state (all sequences)
     LLAMA_API size_t llama_state_seq_set_data_ext(
             struct llama_context * ctx,
                    const uint8_t * src,

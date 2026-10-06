@@ -176,7 +176,8 @@ bool llama_memory_recurrent::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos
         p1 = std::numeric_limits<llama_pos>::max();
     }
 
-    if ((uint32_t) seq_id >= this->n_seq_max) {
+    // seq_id < 0 : match any sequence (the wildcard path below needs no seq_id validation)
+    if (seq_id >= 0 && (uint32_t) seq_id >= this->n_seq_max) {
         LLAMA_LOG_ERROR("%s: invalid seq_id (%d) - larger than n_seq_max (%d)\n", __func__, seq_id, this->n_seq_max);
         return false;
     }
@@ -259,6 +260,14 @@ bool llama_memory_recurrent::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos
 }
 
 void llama_memory_recurrent::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, llama_pos p0, llama_pos p1) {
+    // seq_cp requires two concrete sequences
+    if (seq_id_src < 0 || seq_id_dst < 0 ||
+            (uint32_t) seq_id_src >= this->n_seq_max || (uint32_t) seq_id_dst >= this->n_seq_max) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id (%d -> %d), seq_cp requires seq_id in [0, %d)\n",
+                __func__, seq_id_src, seq_id_dst, this->n_seq_max);
+        return;
+    }
+
     if (seq_id_src == seq_id_dst) {
         return;
     }
@@ -296,6 +305,12 @@ void llama_memory_recurrent::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id
 }
 
 void llama_memory_recurrent::seq_keep(llama_seq_id seq_id) {
+    // seq_keep requires a concrete sequence
+    if (seq_id < 0 || (uint32_t) seq_id >= this->n_seq_max) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id (%d), seq_keep requires seq_id in [0, %d)\n", __func__, seq_id, this->n_seq_max);
+        return;
+    }
+
     uint32_t new_head = size;
 
     for (uint32_t i = 0; i < size; ++i) {
@@ -328,6 +343,12 @@ void llama_memory_recurrent::seq_keep(llama_seq_id seq_id) {
 }
 
 void llama_memory_recurrent::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, llama_pos shift) {
+    // seq_add requires a concrete sequence
+    if (seq_id < 0 || (uint32_t) seq_id >= this->n_seq_max) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id (%d), seq_add requires seq_id in [0, %d)\n", __func__, seq_id, this->n_seq_max);
+        return;
+    }
+
     if (shift == 0) {
         return;
     }
@@ -358,6 +379,12 @@ void llama_memory_recurrent::seq_add(llama_seq_id seq_id, llama_pos p0, llama_po
 }
 
 void llama_memory_recurrent::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, int d) {
+    // seq_div requires a concrete sequence
+    if (seq_id < 0 || (uint32_t) seq_id >= this->n_seq_max) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id (%d), seq_div requires seq_id in [0, %d)\n", __func__, seq_id, this->n_seq_max);
+        return;
+    }
+
     if (d == 1) {
         return;
     }
@@ -388,6 +415,11 @@ void llama_memory_recurrent::seq_div(llama_seq_id seq_id, llama_pos p0, llama_po
 }
 
 llama_pos llama_memory_recurrent::seq_pos_min(llama_seq_id seq_id) const {
+    // seq_pos_min requires a concrete sequence - return -1 as documented
+    if (seq_id < 0 || (uint32_t) seq_id >= this->n_seq_max) {
+        return -1;
+    }
+
     llama_pos result = std::numeric_limits<llama_pos>::max();
 
     for (uint32_t i = 0; i < size; ++i) {
@@ -404,6 +436,11 @@ llama_pos llama_memory_recurrent::seq_pos_min(llama_seq_id seq_id) const {
 }
 
 llama_pos llama_memory_recurrent::seq_pos_max(llama_seq_id seq_id) const {
+    // seq_pos_max requires a concrete sequence - return -1 as documented
+    if (seq_id < 0 || (uint32_t) seq_id >= this->n_seq_max) {
+        return -1;
+    }
+
     llama_pos result = -1;
 
     for (uint32_t i = 0; i < size; ++i) {
@@ -793,13 +830,13 @@ void llama_memory_recurrent::state_write(llama_io_write_i & io, llama_seq_id seq
     uint32_t cell_range_begin = size;
     for (uint32_t i = 0; i < size; ++i) {
         const auto & cell = cells[i];
-        // TODO: fix incosistent handling of `seq_id < 0` and `seq_id == -1` in the codebase [TAG_LLAMA_SEQ_ID_NEG]
-        if ((seq_id == -1 && !cell.is_empty()) || cell.has_seq_id(seq_id)) {
+        // seq_id < 0 : match any sequence
+        if ((seq_id < 0 && !cell.is_empty()) || cell.has_seq_id(seq_id)) {
             ++cell_count;
             uint32_t rs_idx_cur = 0;
 
             if (n_rs_seq != 0) {
-                if (seq_id != -1) {
+                if (seq_id >= 0) {
                     GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < rs_idx.size());
                     rs_idx_cur = rs_idx[seq_id];
                 } else {
@@ -898,7 +935,7 @@ void llama_memory_recurrent::state_write_meta(llama_io_write_i & io, const std::
         for (uint32_t i = range.first; i < range.second; ++i) {
             const auto & cell = cells[i];
             const llama_pos pos      = cell.pos;
-            const uint32_t  n_seq_id = seq_id == -1 ? cell.seq_id.size() : 0;
+            const uint32_t  n_seq_id = seq_id < 0 ? cell.seq_id.size() : 0;
 
             io.write(&pos,      sizeof(pos));
             io.write(&n_seq_id, sizeof(n_seq_id));
@@ -1008,7 +1045,7 @@ void llama_memory_recurrent::state_write_data(llama_io_write_i & io, const std::
 }
 
 bool llama_memory_recurrent::state_read_meta(llama_io_read_i & io, uint32_t cell_count, llama_seq_id dest_seq_id) {
-    if (dest_seq_id != -1) {
+    if (dest_seq_id >= 0) {
         // single sequence
         if (cell_count > size) {
             LLAMA_LOG_ERROR("%s: not enough cells in kv cache\n", __func__);
@@ -1249,8 +1286,8 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
 // the cleared ranges mirror the write pattern of state_read_data() - keep both in sync
 // the transposed s layout is not handled - state_read_data() rejects it before any write
 void llama_memory_recurrent::state_clear(llama_seq_id seq_id, uint32_t cell_head, uint32_t cell_count) {
-    // TODO: fix incosistent handling of `seq_id < 0` and `seq_id == -1` in the codebase [TAG_LLAMA_SEQ_ID_NEG]
-    if (seq_id == -1) {
+    // seq_id < 0 : match any sequence
+    if (seq_id < 0) {
         clear(true);
         return;
     }

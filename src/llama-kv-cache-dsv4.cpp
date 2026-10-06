@@ -1515,6 +1515,14 @@ bool llama_kv_cache_dsv4::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1
 void llama_kv_cache_dsv4::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, llama_pos p0, llama_pos p1) {
     GGML_ASSERT(p0 <= 0 && p1 < 0 && "DSV4 only supports full sequence copies");
 
+    // seq_cp requires two concrete sequences
+    if (seq_id_src < 0 || seq_id_dst < 0 ||
+            (uint32_t) seq_id_src >= n_seq_max || (uint32_t) seq_id_dst >= n_seq_max) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id (%d -> %d), seq_cp requires seq_id in [0, %d)\n",
+                __func__, seq_id_src, seq_id_dst, n_seq_max);
+        return;
+    }
+
     kv_raw->seq_cp(seq_id_src, seq_id_dst, p0, p1);
     kv_csa->seq_cp(seq_id_src, seq_id_dst, -1, -1);
     kv_hca->seq_cp(seq_id_src, seq_id_dst, -1, -1);
@@ -1530,7 +1538,11 @@ void llama_kv_cache_dsv4::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_ds
 }
 
 void llama_kv_cache_dsv4::seq_keep(llama_seq_id seq_id) {
-    GGML_ASSERT(seq_id >= 0 && (uint32_t) seq_id < n_seq_max);
+    // seq_keep requires a concrete sequence
+    if (seq_id < 0 || (uint32_t) seq_id >= n_seq_max) {
+        LLAMA_LOG_ERROR("%s: invalid seq_id (%d), seq_keep requires seq_id in [0, %d)\n", __func__, seq_id, n_seq_max);
+        return;
+    }
 
     kv_raw->seq_keep(seq_id);
 
