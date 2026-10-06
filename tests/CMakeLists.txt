@@ -267,15 +267,21 @@ set_tests_properties(test-download-model PROPERTIES FIXTURES_SETUP test-download
 llama_build_and_test(test-thread-safety.cpp ARGS -m "${MODEL_DEST}" -ngl 99 -p "The meaning of life is" -n 128 -c 256 -ub 32 -np 4 -t 2)
 set_tests_properties(test-thread-safety PROPERTIES FIXTURES_REQUIRED test-download-model)
 
-llama_build_and_test(test-arg-parser.cpp)
+# the variants run the same body and share file names, so each one gets its own directory
+set(TEST_ARG_CWD ${CMAKE_CURRENT_BINARY_DIR}/test-arg-parser-cwd)
+set(TEST_ARG_CWD_FULL ${CMAKE_CURRENT_BINARY_DIR}/test-arg-parser-argv-full-cwd)
+set(TEST_ARG_CWD_SHIFT ${CMAKE_CURRENT_BINARY_DIR}/test-arg-parser-argv-shift-cwd)
+file(MAKE_DIRECTORY ${TEST_ARG_CWD} ${TEST_ARG_CWD_FULL} ${TEST_ARG_CWD_SHIFT})
+
+llama_build_and_test(test-arg-parser.cpp WORKING_DIRECTORY ${TEST_ARG_CWD})
 
 # the process argv in two forms: full, and shifted like app/llama.cpp dispatches it
 # the values match the escaped literals in test-arg-parser.cpp
 string(ASCII 99 97 102 195 169 45 230 151 165 230 156 172 232 170 158 TEST_ARG_PROMPT)
 string(ASCII 97 114 103 118 45 102 117 108 108 45 99 97 102 195 169 45 230 168 161 229 158 139 45 240 159 166 153 46 108 111 103 TEST_ARG_LOG_FULL)
 string(ASCII 97 114 103 118 45 115 104 105 102 116 45 99 97 102 195 169 45 230 168 161 229 158 139 45 240 159 166 153 46 108 111 103 TEST_ARG_LOG_SHIFT)
-llama_test(test-arg-parser NAME test-arg-parser-argv-full ARGS --log-file "${TEST_ARG_LOG_FULL}" -p "${TEST_ARG_PROMPT}" -m test-arg-model.gguf)
-llama_test(test-arg-parser NAME test-arg-parser-argv-shift ARGS fwd --log-file "${TEST_ARG_LOG_SHIFT}" -p "${TEST_ARG_PROMPT}" -m test-arg-model.gguf)
+llama_test(test-arg-parser NAME test-arg-parser-argv-full WORKING_DIRECTORY ${TEST_ARG_CWD_FULL} ARGS --log-file "${TEST_ARG_LOG_FULL}" -p "${TEST_ARG_PROMPT}" -m test-arg-model.gguf)
+llama_test(test-arg-parser NAME test-arg-parser-argv-shift WORKING_DIRECTORY ${TEST_ARG_CWD_SHIFT} ARGS fwd --log-file "${TEST_ARG_LOG_SHIFT}" -p "${TEST_ARG_PROMPT}" -m test-arg-model.gguf)
 llama_build_and_test(test-model-resolution.cpp)
 # the test serves its repos from an httplib server, and the library links it privately
 target_link_libraries(test-model-resolution PRIVATE cpp-httplib)

@@ -19,6 +19,7 @@
 #   define NOMINMAX
 #endif
 #include <windows.h>
+#include <shellapi.h>
 #endif
 
 #include <algorithm>
@@ -827,7 +828,6 @@ arg_values::arg_values(int argc, char ** argv) : argc(argc), argv(argv) {
     // arrays, so compare the values and not the pointers
     const int proc_argc = __argc;
     char * const * proc_argv = __argv;
-    wchar_t * const * proc_wide = __wargv;
 
     // a module can lack the process arguments. nothing can be verified then
     if (proc_argc <= 0 || proc_argv == nullptr) {
@@ -848,17 +848,25 @@ arg_values::arg_values(int argc, char ** argv) : argc(argc), argv(argv) {
     }
 
     // the values are from the process now. never fall back to their ANSI bytes
-    if (proc_wide == nullptr) {
+
+    // __wargv is set only by the wmain() startup. ask the OS for the wide command line instead
+    int proc_wargc = 0;
+    wchar_t ** proc_wargv = CommandLineToArgvW(GetCommandLineW(), &proc_wargc);
+    if (proc_wargv == nullptr) {
+        throw std::invalid_argument("error: cannot recover the original arguments of the process");
+    }
+
+    // the wide list is parsed by other rules. it must align with the process list
+    if (proc_wargc != proc_argc) {
+        LocalFree(proc_wargv);
         throw std::invalid_argument("error: cannot recover the original arguments of the process");
     }
 
     wide.reserve(argc);
     for (int i = 0; i < argc; ++i) {
-        if (proc_wide[shift + i] == nullptr) {
-            throw std::invalid_argument("error: cannot recover the original arguments of the process");
-        }
-        wide.push_back(proc_wide[shift + i]);
+        wide.push_back(proc_wargv[shift + i]);
     }
+    LocalFree(proc_wargv);
 
     from_process = true;
 #endif
