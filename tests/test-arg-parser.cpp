@@ -2,10 +2,15 @@
 #include "common.h"
 #include "download.h"
 #include "llama.h"
+#include "log.h"
+#include "preset.h"
 #include "speculative.h"
 
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <limits>
+#include <map>
 #include <string>
 #include <vector>
 #include <sstream>
@@ -14,7 +19,24 @@
 #undef NDEBUG
 #include <cassert>
 
-static void test(void) {
+// env values are native on Windows (wide) and raw bytes elsewhere
+static void set_env_value(const std::string & name, const std::string & value) {
+#ifdef _WIN32
+    _wputenv_s(utf8_to_wstring(name).c_str(), utf8_to_wstring(value).c_str());
+#else
+    setenv(name.c_str(), value.c_str(), 1);
+#endif
+}
+
+static void unset_env_value(const std::string & name) {
+#ifdef _WIN32
+    _wputenv_s(utf8_to_wstring(name).c_str(), L"");
+#else
+    unsetenv(name.c_str());
+#endif
+}
+
+static void test(int proc_argc, char ** proc_argv) {
     common_params params;
 
     auto assert_output_limits = [](int32_t n_batch, int32_t n_parallel, int32_t n_draft,
@@ -367,6 +389,196 @@ static void test(void) {
     const char * GOOD_URL = "http://ggml.ai/";
     const char * BAD_URL  = "http://ggml.ai/404";
 
+    printf("test-arg-parser: test argument values\n\n");
+
+    // non-ASCII values, escaped to keep the source ASCII. tests/CMakeLists.txt passes the same bytes
+    const std::string argv_prompt    = "caf\xC3\xA9-\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";
+    const std::string argv_log_full  = "argv-full-caf\xC3\xA9-\xE6\xA8\xA1\xE5\x9E\x8B-\xF0\x9F\xA6\x99"  ".log";
+    const std::string argv_log_shift = "argv-shift-caf\xC3\xA9-\xE6\xA8\xA1\xE5\x9E\x8B-\xF0\x9F\xA6\x99" ".log";
+
+    // the expected native path of a UTF-8 name
+    auto path_from_utf8 = [](const std::string & name) -> std::filesystem::path {
+#ifdef _WIN32
+        return std::filesystem::u8path(name);
+#else
+        return std::filesystem::path(name); // bytes are native
+#endif
+    };
+
+    auto close_log = []() {
+        common_log_set_file(common_log_main(), std::filesystem::path());
+    };
+
+    // the process argv, full and shifted like app/llama.cpp dispatches it. see tests/CMakeLists.txt
+    if (proc_argc >= 2 && std::string(proc_argv[1]) == "--log-file") {
+        printf("test-arg-parser: test full process argv\n\n");
+        assert(true == common_params_parse(proc_argc, proc_argv, params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == argv_prompt);
+        assert(std::filesystem::exists(path_from_utf8(argv_log_full)));
+        close_log();
+        std::filesystem::remove(path_from_utf8(argv_log_full));
+
+        // the shifted view of a full list is not a valid list
+        assert(false == common_params_parse(proc_argc - 1, proc_argv + 1, params, LLAMA_EXAMPLE_COMMON));
+    } else if (proc_argc >= 2 && std::string(proc_argv[1]) == "fwd") {
+        printf("test-arg-parser: test shifted process argv\n\n");
+        assert(true == common_params_parse(proc_argc - 1, proc_argv + 1, params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == argv_prompt);
+        assert(std::filesystem::exists(path_from_utf8(argv_log_shift)));
+        close_log();
+        std::filesystem::remove(path_from_utf8(argv_log_shift));
+
+        // the full view of a dispatched list is not a valid list
+        assert(false == common_params_parse(proc_argc, proc_argv, params, LLAMA_EXAMPLE_COMMON));
+    }
+
+    {
+        printf("test-arg-parser: test unicode path and text values\n\n");
+
+        // a unicode filename reaches the path handler and the file is created
+        argv = {"binary_name", "--log-file", argv_log_full, "-p", argv_prompt, "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == argv_prompt);
+        assert(std::filesystem::exists(path_from_utf8(argv_log_full)));
+        close_log();
+        std::filesystem::remove(path_from_utf8(argv_log_full));
+    }
+
+#ifndef _WIN32
+    {
+        printf("test-arg-parser: test raw path bytes\n\n");
+
+        // POSIX filenames need not be UTF-8
+        const std::string raw_name = std::string("test-arg-raw-") + "\xF5\xFF" + ".log";
+        argv = {"binary_name", "--log-file", raw_name, "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+        assert(std::filesystem::exists(raw_name));
+        close_log();
+        std::filesystem::remove(raw_name);
+    }
+#endif
+
+    {
+        printf("test-arg-parser: test value shapes\n\n");
+
+        // empty value
+        argv = {"binary_name", "-p", "", "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == "");
+
+        // spaces
+        argv = {"binary_name", "-p", "a b", "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == "a b");
+
+        // quotes
+        argv = {"binary_name", "-p", "q\"uote", "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == "q\"uote");
+
+        // backslashes
+        argv = {"binary_name", "-p", "trail\\", "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == "trail\\");
+
+        // a value that looks like an option is still a value
+        argv = {"binary_name", "-p", "--predict", "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == "--predict");
+
+        // repeated: the last value wins
+        argv = {"binary_name", "-p", "first", "-p", "second", "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == "second");
+
+        // positional mapping with a path between other values
+        argv = {"binary_name", "-p", "one", "--log-file", "a b.log", "-t", "42", "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+        assert(params.prompt == "one");
+        assert(params.cpuparams.n_threads == 42);
+        assert(std::filesystem::exists("a b.log"));
+        close_log();
+        std::filesystem::remove("a b.log");
+    }
+
+    {
+        printf("test-arg-parser: test caller supplied lists\n\n");
+
+        // a filtered list with the real argv[0] stays under caller control
+        std::vector<std::string> filtered = {proc_argv[0], "-p", "filtered-arg-value", "-m", "model_file.gguf"};
+        common_params filtered_params;
+        assert(true == common_params_parse(filtered.size(), list_str_to_char(filtered).data(), filtered_params, LLAMA_EXAMPLE_COMMON));
+        assert(filtered_params.prompt == "filtered-arg-value");
+
+        if (proc_argc >= 5) {
+            // a synthetic list with the size of the process list is not the process list
+            std::vector<std::string> synth = {"synthetic", "-p", "synthetic-arg-value", "-m", "model_file.gguf"};
+            while ((int) synth.size() < proc_argc) {
+                synth.push_back("--verbose");
+            }
+            common_params synth_params;
+            assert(true == common_params_parse(synth.size(), list_str_to_char(synth).data(), synth_params, LLAMA_EXAMPLE_COMMON));
+            assert(synth_params.prompt == "synthetic-arg-value");
+        }
+    }
+
+    {
+        printf("test-arg-parser: test preset capture and replay\n\n");
+
+        const std::string name = "test-arg-preset-caf\xC3\xA9-\xE6\xA8\xA1\xE5\x9E\x8B-\xF0\x9F\xA6\x99" ".log";
+        argv = {"binary_name", "--log-file", name, "-p", argv_prompt, "-m", "model_file.gguf"};
+        std::map<common_arg, std::string> out_map;
+        assert(true == common_params_to_map(argv.size(), list_str_to_char(argv).data(), LLAMA_EXAMPLE_COMMON, out_map));
+
+        // presets store UTF-8 values
+        for (const auto & [opt, val] : out_map) {
+            if (!opt.args.empty() && std::string(opt.args[0]) == "--log-file") {
+                assert(val == name);
+            }
+        }
+
+        common_preset preset;
+        preset.options = out_map;
+
+        common_params preset_params;
+        preset.apply_to_params(preset_params);
+        assert(preset_params.prompt == argv_prompt);
+        assert(std::filesystem::exists(path_from_utf8(name)));
+        close_log();
+        std::filesystem::remove(path_from_utf8(name));
+    }
+
+    {
+        printf("test-arg-parser: test env values\n\n");
+
+        const std::string env_name = "test-arg-env-caf\xC3\xA9-\xE6\xA8\xA1\xE5\x9E\x8B-\xF0\x9F\xA6\x99" ".log";
+
+        set_env_value("LLAMA_ARG_LOG_FILE", env_name);
+        set_env_value("LLAMA_ARG_MODEL", "env_model.gguf");
+
+        argv = {"binary_name", "--log-file", argv_log_full, "-m", "cli_model.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+
+        // the command line wins over the env
+        assert(params.model.path == "cli_model.gguf");
+
+        // the env path value is native and creates its file too
+        assert(std::filesystem::exists(path_from_utf8(env_name)));
+        close_log();
+        std::filesystem::remove(path_from_utf8(env_name));
+        std::filesystem::remove(path_from_utf8(argv_log_full));
+
+        // a set but empty value is not the same as unset. Windows cannot express it here
+#ifndef _WIN32
+        set_env_value("LLAMA_ARG_LOG_FILE", "");
+        argv = {"binary_name", "-m", "model_file.gguf"};
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
+#endif
+
+        unset_env_value("LLAMA_ARG_LOG_FILE");
+        unset_env_value("LLAMA_ARG_MODEL");
+    }
+
     {
         printf("test-arg-parser: test good URL\n\n");
         auto res = common_remote_get_content(GOOD_URL, {});
@@ -397,9 +609,9 @@ static void test(void) {
     printf("test-arg-parser: all tests OK\n\n");
 }
 
-int main(void) {
+int main(int argc, char ** argv) {
     try {
-        test();
+        test(argc, argv);
     } catch (std::exception & e) {
         fprintf(stderr, "test-arg-parser: exception: %s\n", e.what());
         return 1;
