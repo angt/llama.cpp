@@ -19,7 +19,6 @@
 #   define NOMINMAX
 #endif
 #include <windows.h>
-#include <shellapi.h>
 #endif
 
 #include <algorithm>
@@ -792,6 +791,80 @@ static std::string wide_to_utf8(const wchar_t * str) {
     return res;
 }
 
+// split a command line with the rules of the C runtime startup code, see
+// https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments
+//
+// CommandLineToArgvW() parses quotes by other rules and can split or rewrite valid arguments
+static std::vector<std::wstring> win_split_command_line(const wchar_t * cmdline) {
+    std::vector<std::wstring> args;
+
+    while (*cmdline != L'\0') {
+        while (*cmdline == L' ' || *cmdline == L'\t') {
+            ++cmdline;
+        }
+        if (*cmdline == L'\0') {
+            break;
+        }
+
+        // argv[0] is the program name. there, quotes only protect whitespace
+        const bool program_name = args.empty();
+
+        std::wstring val;
+        bool in_quotes = false;
+
+        while (*cmdline != L'\0' && (in_quotes || (*cmdline != L' ' && *cmdline != L'\t'))) {
+            if (!program_name && *cmdline == L'\\') {
+                int n = 0;
+                while (cmdline[n] == L'\\') {
+                    ++n;
+                }
+                if (cmdline[n] != L'"') {
+                    val.append(n, L'\\'); // backslashes are literal
+                } else {
+                    val.append(n/2, L'\\');
+                    if (n%2 == 1) {
+                        val += L'"'; // an escaped quote is a literal quote
+                    } else {
+                        in_quotes = !in_quotes; // an even run makes the quote a delimiter
+                    }
+                    ++n; // the quote is consumed with the run
+                }
+                cmdline += n;
+            } else if (*cmdline == L'"') {
+                if (!program_name && in_quotes && cmdline[1] == L'"') {
+                    val += L'"'; // a quote pair in a quoted string is a literal quote
+                    cmdline += 2;
+                } else {
+                    in_quotes = !in_quotes;
+                    cmdline += 1;
+                }
+            } else {
+                val += *cmdline;
+                cmdline += 1;
+            }
+        }
+
+        args.push_back(std::move(val));
+    }
+
+    return args;
+}
+
+// the C runtime builds __argv by narrowing the wide values to the ANSI code page
+static bool wide_matches_arg(const std::wstring & wide, const char * arg) {
+    if (arg == nullptr) {
+        return false;
+    }
+    const int size = WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 0) {
+        return false;
+    }
+    std::string res(size, '\0');
+    (void) WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, res.data(), size, nullptr, nullptr);
+    res.pop_back(); // drop the terminating NUL
+    return res == arg;
+}
+
 #endif
 
 // the argv of one parsing call, with the original process values attached when they match
@@ -847,26 +920,22 @@ arg_values::arg_values(int argc, char ** argv) : argc(argc), argv(argv) {
         }
     }
 
-    // the values are from the process now. never fall back to their ANSI bytes
+    // recover the wide originals. __wargv is set only by the wmain() startup, so split
+    // the wide command line with the rules of the C runtime instead
+    const std::vector<std::wstring> wargs = win_split_command_line(GetCommandLineW());
 
-    // __wargv is set only by the wmain() startup. ask the OS for the wide command line instead
-    int proc_wargc = 0;
-    wchar_t ** proc_wargv = CommandLineToArgvW(GetCommandLineW(), &proc_wargc);
-    if (proc_wargv == nullptr) {
-        throw std::invalid_argument("error: cannot recover the original arguments of the process");
+    // keep the wide values only when the split reproduces the process list. otherwise the
+    // values stay exactly as the C runtime produced them
+    if (wargs.size() != (size_t) proc_argc) {
+        return;
+    }
+    for (int i = 0; i < proc_argc; ++i) {
+        if (!wide_matches_arg(wargs[i], proc_argv[i])) {
+            return;
+        }
     }
 
-    // the wide list is parsed by other rules. it must align with the process list
-    if (proc_wargc != proc_argc) {
-        LocalFree(proc_wargv);
-        throw std::invalid_argument("error: cannot recover the original arguments of the process");
-    }
-
-    wide.reserve(argc);
-    for (int i = 0; i < argc; ++i) {
-        wide.push_back(proc_wargv[shift + i]);
-    }
-    LocalFree(proc_wargv);
+    wide.assign(wargs.begin() + shift, wargs.end());
 
     from_process = true;
 #endif
