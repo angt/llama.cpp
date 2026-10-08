@@ -347,7 +347,7 @@ static bool parse_tensor_type(const char * data, std::vector<tensor_type_option>
 }
 
 static bool parse_tensor_type_file(const char * filename, std::vector<tensor_type_option> & tensor_type) {
-    std::ifstream file(filename);
+    std::ifstream file(std::filesystem::u8path(filename));
     if (!file) {
         printf("\n%s: failed to open file '%s': %s\n\n", __func__, filename, std::strerror(errno));
         return false;

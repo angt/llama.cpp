@@ -445,7 +445,7 @@ struct my_llama_file {
     size_t size;
 
     my_llama_file(const char * fname, const char * mode) {
-        fp = std::fopen(fname, mode);
+        fp = ggml_fopen(fname, mode);
         if (fp == NULL) {
             size = 0;
         } else {
@@ -904,7 +904,7 @@ static int run(int argc, char ** argv) {
     TransformerWeights weights = {};
     {
         LOG_INF("%s: Loading llama2c model from %s\n", __func__, params.fn_llama2c_model);
-        FILE * file = fopen(params.fn_llama2c_model, "rb");
+        FILE * file = ggml_fopen(params.fn_llama2c_model, "rb");
         if (!file) {
             LOG_ERR("%s: Unable to open the checkpoint file %s!\n", __func__, params.fn_llama2c_model);
             return 1;

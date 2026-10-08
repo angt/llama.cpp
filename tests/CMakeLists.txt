@@ -149,7 +149,9 @@ if (LLAMA_LLGUIDANCE)
 endif ()
 
 llama_build(test-recurrent-state-rollback.cpp)
+llama_use_wmain(test-recurrent-state-rollback)
 llama_build(test-save-load-state.cpp)
+llama_use_wmain(test-save-load-state)
 
 if (NOT WIN32 OR NOT BUILD_SHARED_LIBS)
     # these tests are disabled on Windows because they use internal functions not exported with LLAMA_API (when building with shared libraries)
@@ -265,6 +267,7 @@ add_test(NAME test-download-model COMMAND ${CMAKE_COMMAND}
 set_tests_properties(test-download-model PROPERTIES FIXTURES_SETUP test-download-model)
 
 llama_build_and_test(test-thread-safety.cpp ARGS -m "${MODEL_DEST}" -ngl 99 -p "The meaning of life is" -n 128 -c 256 -ub 32 -np 4 -t 2)
+llama_use_wmain(test-thread-safety)
 set_tests_properties(test-thread-safety PROPERTIES FIXTURES_REQUIRED test-download-model)
 
 # the variants run the same body and share file names, so each one gets its own directory
@@ -304,6 +307,7 @@ llama_build_and_test(test-backend-sampler.cpp   LABEL "model")
 # Requires a model, uses same args pattern as test-thread-safety
 # TODO: run on all dummy models
 llama_build_and_test(test-state-restore-fragmented.cpp LABEL "model" ARGS -m "${MODEL_DEST}")
+llama_use_wmain(test-state-restore-fragmented)
 set_tests_properties(test-state-restore-fragmented PROPERTIES FIXTURES_REQUIRED test-download-model)
 
 if (APPLE)
@@ -363,6 +367,7 @@ if (NOT LLAMA_USE_SYSTEM_GGML)
 endif()
 
 llama_build(test-export-graph-ops.cpp)
+llama_use_wmain(test-export-graph-ops)
 if (TARGET gguf-model-data)
     target_link_libraries(test-export-graph-ops PRIVATE gguf-model-data)
     target_compile_definitions(test-export-graph-ops PRIVATE LLAMA_HF_FETCH)

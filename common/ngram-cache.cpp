@@ -5,6 +5,7 @@
 #include <cinttypes>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <thread>
 #include <algorithm>
@@ -198,7 +199,7 @@ void common_ngram_cache_draft(
 }
 
 void common_ngram_cache_save(common_ngram_cache & ngram_cache, const std::string & filename) {
-    std::ofstream file_out(filename, std::ios::binary);
+    std::ofstream file_out(std::filesystem::u8path(filename), std::ios::binary);
     for (std::pair<common_ngram, common_ngram_cache_part> item : ngram_cache) {
         const common_ngram      ngram        = item.first;
         common_ngram_cache_part token_counts = item.second;
@@ -220,7 +221,7 @@ void common_ngram_cache_save(common_ngram_cache & ngram_cache, const std::string
 }
 
 common_ngram_cache common_ngram_cache_load(const std::string & filename) {
-    std::ifstream hashmap_file(filename, std::ios::binary);
+    std::ifstream hashmap_file(std::filesystem::u8path(filename), std::ios::binary);
     if (!hashmap_file) {
         throw std::ifstream::failure("Unable to open file " + filename);
     }

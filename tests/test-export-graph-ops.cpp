@@ -125,7 +125,7 @@ static void extract_graph_ops(ggml_cgraph * cgraph, const char * label, std::set
             label, n_new, n_nodes, n_skipped);
 }
 
-int main(int argc, char ** argv) {
+static int run(int argc, char ** argv) {
     common_params params;
     params.out_file = "tests.txt";
 
@@ -228,3 +228,13 @@ int main(int argc, char ** argv) {
 
     return 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t ** wargv) {
+    return common_args_run(argc, wargv, run);
+}
+#else
+int main(int argc, char ** argv) {
+    return run(argc, argv);
+}
+#endif
