@@ -57,9 +57,13 @@ function(llama_add_compile_flags)
     endif()
 endfunction()
 
-# the target defines wmain() and receives its Windows arguments from it. GNU toolchains need an explicit wide startup
-function(llama_use_wmain target)
-    if (WIN32 AND NOT MSVC)
+# the entry point from common/main.cpp, it calls llama_main() defined by the target
+set(LLAMA_COMMON_MAIN ${CMAKE_CURRENT_LIST_DIR}/../common/main.cpp)
+
+# add the shared main()/wmain() to an executable. GNU toolchains need an explicit wide startup for wmain()
+function(llama_use_main target)
+    target_sources(${target} PRIVATE ${LLAMA_COMMON_MAIN})
+    if (MINGW)
         target_link_options(${target} PRIVATE -municode)
     endif()
 endfunction()

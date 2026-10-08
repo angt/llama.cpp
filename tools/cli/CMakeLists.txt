@@ -19,7 +19,7 @@ endif()
 set(TARGET llama-cli)
 
 add_executable(${TARGET} main.cpp)
-llama_use_wmain(${TARGET})
+llama_use_main(${TARGET})
 target_link_libraries(${TARGET} PRIVATE llama-cli-impl)
 target_compile_features(${TARGET} PRIVATE cxx_std_17)
 

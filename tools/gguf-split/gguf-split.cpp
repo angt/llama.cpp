@@ -3,6 +3,7 @@
 #include "arg.h"
 #include "build-info.h"
 #include "common.h"
+#include "main.h"
 
 #include "ggml.h"
 #include "gguf.h"
@@ -18,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #if defined(_WIN32)
@@ -519,7 +521,8 @@ static void gguf_merge(const split_params & split_params) {
     bool merge_error = false;
     for (int i_split = 0; i_split < n_split; i_split++) {
         llama_split_path(split_path, sizeof(split_path), split_prefix, i_split, n_split);
-        std::ifstream f_input(std::filesystem::u8path(split_path), std::ios::binary);
+        const std::filesystem::path split_file = std::filesystem::u8path(split_path);
+        std::ifstream f_input(split_file, std::ios::binary);
         if (!f_input.is_open()) {
             fprintf(stderr, "%s:  failed to open input GGUF from %s\n", __func__, split_path);
             for (uint32_t i = 0; i < ctx_ggufs.size(); i++) {
@@ -564,8 +567,8 @@ static void gguf_merge(const split_params & split_params) {
         fprintf(stderr, "\033[3Ddone\n");
 
         if (!split_params.dry_run && split_params.delete_splits) {
-            int delete_result = std::remove(split_path);
-            if (delete_result != 0) {
+            std::error_code ec;
+            if (!std::filesystem::remove(split_file, ec)) {
                 merge_error = true;
                 fprintf(stderr, "error: failed to delete %s\n", split_path);
             } else {
@@ -592,7 +595,7 @@ static void gguf_merge(const split_params & split_params) {
     }
 }
 
-static int run(int argc, char ** argv) {
+int llama_main(int argc, char ** argv) {
     std::setlocale(LC_NUMERIC, "C");
 
     split_params params;
@@ -609,13 +612,3 @@ static int run(int argc, char ** argv) {
 
     return 0;
 }
-
-#ifdef _WIN32
-int wmain(int argc, wchar_t ** wargv) {
-    return common_args_run(argc, wargv, run);
-}
-#else
-int main(int argc, char ** argv) {
-    return run(argc, argv);
-}
-#endif

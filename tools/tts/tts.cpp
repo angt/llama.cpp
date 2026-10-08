@@ -5,6 +5,7 @@
 #include "llama.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
+#include "main.h"
 
 #include <cstdio>
 #include <cstring>
@@ -42,7 +43,7 @@ static void print_usage(int, char ** argv) {
     LOG("\n\n");
 }
 
-static int run(int argc, char ** argv) {
+int llama_main(int argc, char ** argv) {
     common_params params;
 
     common_init();
@@ -212,13 +213,3 @@ static int run(int argc, char ** argv) {
     llama_backend_free();
     return 0;
 }
-
-#ifdef _WIN32
-int wmain(int argc, wchar_t ** wargv) {
-    return common_args_run(argc, wargv, run);
-}
-#else
-int main(int argc, char ** argv) {
-    return run(argc, argv);
-}
-#endif

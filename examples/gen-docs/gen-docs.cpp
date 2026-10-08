@@ -1,5 +1,6 @@
 #include "arg.h"
 #include "common.h"
+#include "main.h"
 
 #include <clocale>
 #include <fstream>
@@ -102,7 +103,7 @@ static void write_help(std::ostringstream & ss, const md_file & md) {
     ss << "\n" << HELP_END_MARKER;
 }
 
-static int run(int, char **) {
+int llama_main(int, char **) {
     std::setlocale(LC_NUMERIC, "C");
 
     for (const auto & md : md_files) {
@@ -145,13 +146,3 @@ static int run(int, char **) {
 
     return 0;
 }
-
-#ifdef _WIN32
-int wmain(int argc, wchar_t ** wargv) {
-    return common_args_run(argc, wargv, run);
-}
-#else
-int main(int argc, char ** argv) {
-    return run(argc, argv);
-}
-#endif

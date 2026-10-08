@@ -19,11 +19,6 @@
 // CLI argument parsing
 //
 
-#ifdef _WIN32
-// run a tool with UTF-8 arguments. entry points call this from wmain(): the wide values are converted here and owned for the duration of the call
-int common_args_run(int argc, wchar_t ** wargv, int (*func)(int, char **));
-#endif
-
 struct common_arg {
     std::set<enum llama_example> examples = {LLAMA_EXAMPLE_COMMON};
     std::set<enum llama_example> excludes = {};
@@ -135,7 +130,7 @@ struct common_params_context {
 };
 
 // parse input arguments from CLI
-// the values of argv are UTF-8 on Windows (see common_args_run) and native bytes elsewhere
+// the values of argv are UTF-8 on Windows (see common/main.cpp) and native bytes elsewhere
 // if one argument has invalid value, it will automatically display usage of the specific argument (and not the full usage message)
 // TODO: this function can load ggml backend (by calling llama_support_rpc)
 //       this is a side-effect that should be avoided

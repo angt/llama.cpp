@@ -777,45 +777,6 @@ static void common_params_apply_system_config(common_params & params, llama_exam
     }
 }
 
-#ifdef _WIN32
-
-// convert a wide value to UTF-8. throw when the value has no UTF-8 form
-static std::string wide_to_utf8(const wchar_t * str) {
-    int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, str, -1, nullptr, 0, nullptr, nullptr);
-    if (size <= 0) {
-        throw std::invalid_argument("error: cannot decode an argument as UTF-8");
-    }
-    std::string res(size, '\0');
-    (void) WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, str, -1, res.data(), size, nullptr, nullptr);
-    res.pop_back(); // drop the terminating NUL
-    return res;
-}
-
-int common_args_run(int argc, wchar_t ** wargv, int (*func)(int, char **)) {
-    std::vector<std::string> buf;
-    std::vector<char *> ptrs;
-
-    try {
-        buf.reserve(argc);
-        for (int i = 0; i < argc; ++i) {
-            buf.push_back(wide_to_utf8(wargv[i]));
-        }
-    } catch (const std::exception & e) {
-        fprintf(stderr, "%s\n", e.what());
-        return 1;
-    }
-
-    ptrs.reserve(buf.size() + 1);
-    for (auto & val : buf) {
-        ptrs.push_back(val.data());
-    }
-    ptrs.push_back(nullptr);
-
-    return func(argc, ptrs.data());
-}
-
-#endif
-
 // an argument value is UTF-8 on Windows, and a native byte string elsewhere
 static std::filesystem::path value_to_path(const std::string & val) {
 #ifdef _WIN32

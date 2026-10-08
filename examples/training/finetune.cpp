@@ -2,6 +2,7 @@
 #include "common.h"
 #include "log.h"
 #include "llama.h"
+#include "main.h"
 
 #include <clocale>
 #include <cmath>
@@ -14,7 +15,7 @@
 #pragma warning(disable: 4244 4267)  // possible loss of data
 #endif
 
-static int run(int argc, char ** argv) {
+int llama_main(int argc, char ** argv) {
     std::setlocale(LC_NUMERIC, "C");
 
     common_params params;
@@ -98,13 +99,3 @@ static int run(int argc, char ** argv) {
 
     return 0;
 }
-
-#ifdef _WIN32
-int wmain(int argc, wchar_t ** wargv) {
-    return common_args_run(argc, wargv, run);
-}
-#else
-int main(int argc, char ** argv) {
-    return run(argc, argv);
-}
-#endif

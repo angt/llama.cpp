@@ -3,6 +3,7 @@
 #include "arg.h"
 #include "common.h"
 #include "ngram-cache.h"
+#include "main.h"
 
 #include <clocale>
 #include <cstdint>
@@ -18,7 +19,7 @@ static void print_usage(char* argv0) {
     fprintf(stderr, "Usage: %s [--help] lookup_part_1.bin lookup_part_2.bin ... lookup_merged.bin\n", argv0);
 }
 
-static int run(int argc, char ** argv){
+int llama_main(int argc, char ** argv){
     std::setlocale(LC_NUMERIC, "C");
 
     if (argc < 3) {
@@ -51,13 +52,3 @@ static int run(int argc, char ** argv){
 
     return 0;
 }
-
-#ifdef _WIN32
-int wmain(int argc, wchar_t ** wargv) {
-    return common_args_run(argc, wargv, run);
-}
-#else
-int main(int argc, char ** argv) {
-    return run(argc, argv);
-}
-#endif

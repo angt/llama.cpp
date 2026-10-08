@@ -157,7 +157,7 @@ if (LLAMA_BUILD_TOOLS)
 
     set(TARGET llama-mtmd-cli)
     add_executable         (${TARGET} mtmd-cli.cpp)
-    llama_use_wmain        (${TARGET})
+    llama_use_main(${TARGET})
     set_target_properties  (${TARGET} PROPERTIES OUTPUT_NAME llama-mtmd-cli)
     if(LLAMA_TOOLS_INSTALL)
         install(TARGETS ${TARGET} RUNTIME)
@@ -167,7 +167,7 @@ if (LLAMA_BUILD_TOOLS)
 
     # mtmd-debug tool
     add_executable(llama-mtmd-debug debug/mtmd-debug.cpp)
-    llama_use_wmain(llama-mtmd-debug)
+    llama_use_main(llama-mtmd-debug)
     set_target_properties(llama-mtmd-debug PROPERTIES OUTPUT_NAME llama-mtmd-debug)
     target_link_libraries(llama-mtmd-debug PRIVATE llama-common mtmd Threads::Threads)
     target_compile_features(llama-mtmd-debug PRIVATE cxx_std_17)
