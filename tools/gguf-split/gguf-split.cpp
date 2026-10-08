@@ -1,5 +1,6 @@
 #include "llama.h"
 
+#include "arg.h"
 #include "build-info.h"
 #include "common.h"
 
@@ -89,7 +90,7 @@ static size_t split_str_to_n_bytes(std::string str) {
     return n_bytes;
 }
 
-static void split_params_parse_ex(int argc, const char ** argv, split_params & params) {
+static void split_params_parse_ex(int argc, char ** argv, split_params & params) {
     std::string arg;
     const std::string arg_prefix = "--";
     bool invalid_param = false;
@@ -180,7 +181,7 @@ static void split_params_parse_ex(int argc, const char ** argv, split_params & p
     params.output = argv[arg_idx++];
 }
 
-static bool split_params_parse(int argc, const char ** argv, split_params & params) {
+static bool split_params_parse(int argc, char ** argv, split_params & params) {
     bool result = true;
     try {
         split_params_parse_ex(argc, argv, params);
@@ -590,7 +591,7 @@ static void gguf_merge(const split_params & split_params) {
     }
 }
 
-int main(int argc, const char ** argv) {
+static int run(int argc, char ** argv) {
     std::setlocale(LC_NUMERIC, "C");
 
     split_params params;
@@ -607,3 +608,13 @@ int main(int argc, const char ** argv) {
 
     return 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t ** wargv) {
+    return common_args_run(argc, wargv, run);
+}
+#else
+int main(int argc, char ** argv) {
+    return run(argc, argv);
+}
+#endif

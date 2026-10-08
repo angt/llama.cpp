@@ -1,6 +1,7 @@
 set(TARGET llama-app)
 
 add_executable(${TARGET} llama.cpp download.cpp)
+llama_use_wmain(${TARGET})
 set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME llama)
 
 target_link_libraries(${TARGET} PRIVATE

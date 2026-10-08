@@ -63,6 +63,7 @@ endif()
 set(TARGET llama-server)
 
 add_executable(${TARGET} main.cpp)
+llama_use_wmain(${TARGET})
 install(TARGETS ${TARGET} RUNTIME)
 
 target_link_libraries(${TARGET} PRIVATE llama-server-impl)

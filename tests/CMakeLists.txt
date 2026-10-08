@@ -274,6 +274,7 @@ set(TEST_ARG_CWD_SHIFT ${CMAKE_CURRENT_BINARY_DIR}/test-arg-parser-argv-shift-cw
 file(MAKE_DIRECTORY ${TEST_ARG_CWD} ${TEST_ARG_CWD_FULL} ${TEST_ARG_CWD_SHIFT})
 
 llama_build_and_test(test-arg-parser.cpp WORKING_DIRECTORY ${TEST_ARG_CWD})
+llama_use_wmain(test-arg-parser)
 
 # the process argv in two forms: full, and shifted like app/llama.cpp dispatches it
 # the values match the escaped literals in test-arg-parser.cpp

@@ -1,5 +1,6 @@
 #include "ggml.h"
 #include "llama.h"
+#include "arg.h"
 #include "common.h"
 #include "ngram-cache.h"
 
@@ -17,7 +18,7 @@ static void print_usage(char* argv0) {
     fprintf(stderr, "Usage: %s [--help] lookup_part_1.bin lookup_part_2.bin ... lookup_merged.bin\n", argv0);
 }
 
-int main(int argc, char ** argv){
+static int run(int argc, char ** argv){
     std::setlocale(LC_NUMERIC, "C");
 
     if (argc < 3) {
@@ -47,4 +48,16 @@ int main(int argc, char ** argv){
 
     fprintf(stderr, "lookup-merge: saving file %s\n", args.back().c_str());
     common_ngram_cache_save(ngram_cache_merged, args.back());
+
+    return 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t ** wargv) {
+    return common_args_run(argc, wargv, run);
+}
+#else
+int main(int argc, char ** argv) {
+    return run(argc, argv);
+}
+#endif

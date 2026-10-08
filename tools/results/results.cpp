@@ -52,7 +52,7 @@ static std::vector<float> get_logits(
     return ret;
 }
 
-int main(int argc, char ** argv) {
+static int run(int argc, char ** argv) {
     common_params params;
     params.escape = false;
 
@@ -177,4 +177,14 @@ int main(int argc, char ** argv) {
     gguf_write_to_file(gguf_ctx.get(), params.out_file.c_str(), /*only_meta =*/ false);
     return 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t ** wargv) {
+    return common_args_run(argc, wargv, run);
+}
+#else
+int main(int argc, char ** argv) {
+    return run(argc, argv);
+}
+#endif
 

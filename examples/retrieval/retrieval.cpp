@@ -112,7 +112,7 @@ static void batch_process(llama_context * ctx, common_batch & batch, float * out
     }
 }
 
-int main(int argc, char ** argv) {
+static int run(int argc, char ** argv) {
     std::setlocale(LC_NUMERIC, "C");
 
     common_params params;
@@ -303,4 +303,16 @@ int main(int argc, char ** argv) {
 
     // clean up
     llama_backend_free();
+
+    return 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t ** wargv) {
+    return common_args_run(argc, wargv, run);
+}
+#else
+int main(int argc, char ** argv) {
+    return run(argc, argv);
+}
+#endif

@@ -421,7 +421,7 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg) {
     return 0;
 }
 
-int main(int argc, char ** argv) {
+static int run(int argc, char ** argv) {
     std::setlocale(LC_NUMERIC, "C");
 
     ggml_time_init();
@@ -599,3 +599,13 @@ int main(int argc, char ** argv) {
     llama_perf_context_print(ctx.lctx);
     return g_is_interrupted ? 130 : 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t ** wargv) {
+    return common_args_run(argc, wargv, run);
+}
+#else
+int main(int argc, char ** argv) {
+    return run(argc, argv);
+}
+#endif

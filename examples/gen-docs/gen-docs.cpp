@@ -102,7 +102,7 @@ static void write_help(std::ostringstream & ss, const md_file & md) {
     ss << "\n" << HELP_END_MARKER;
 }
 
-int main(int, char **) {
+static int run(int, char **) {
     std::setlocale(LC_NUMERIC, "C");
 
     for (const auto & md : md_files) {
@@ -145,3 +145,13 @@ int main(int, char **) {
 
     return 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t ** wargv) {
+    return common_args_run(argc, wargv, run);
+}
+#else
+int main(int argc, char ** argv) {
+    return run(argc, argv);
+}
+#endif

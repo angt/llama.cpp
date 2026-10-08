@@ -791,193 +791,41 @@ static std::string wide_to_utf8(const wchar_t * str) {
     return res;
 }
 
-// split a command line with the rules of the C runtime startup code, see
-// https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments
-//
-// CommandLineToArgvW() parses quotes by other rules and can split or rewrite valid arguments
-static std::vector<std::wstring> win_split_command_line(const wchar_t * cmdline) {
-    std::vector<std::wstring> args;
+int common_args_run(int argc, wchar_t ** wargv, int (*func)(int, char **)) {
+    std::vector<std::string> buf;
+    std::vector<char *> ptrs;
 
-    while (*cmdline != L'\0') {
-        while (*cmdline == L' ' || *cmdline == L'\t') {
-            ++cmdline;
-        }
-        if (*cmdline == L'\0') {
-            break;
-        }
-
-        // argv[0] is the program name. there, quotes only protect whitespace
-        const bool program_name = args.empty();
-
-        std::wstring val;
-        bool in_quotes = false;
-
-        while (*cmdline != L'\0' && (in_quotes || (*cmdline != L' ' && *cmdline != L'\t'))) {
-            if (!program_name && *cmdline == L'\\') {
-                int n = 0;
-                while (cmdline[n] == L'\\') {
-                    ++n;
-                }
-                if (cmdline[n] != L'"') {
-                    val.append(n, L'\\'); // backslashes are literal
-                } else {
-                    val.append(n/2, L'\\');
-                    if (n%2 == 1) {
-                        val += L'"'; // an escaped quote is a literal quote
-                    } else {
-                        in_quotes = !in_quotes; // an even run makes the quote a delimiter
-                    }
-                    ++n; // the quote is consumed with the run
-                }
-                cmdline += n;
-            } else if (*cmdline == L'"') {
-                if (!program_name && in_quotes && cmdline[1] == L'"') {
-                    val += L'"'; // a quote pair in a quoted string is a literal quote
-                    cmdline += 2;
-                } else {
-                    in_quotes = !in_quotes;
-                    cmdline += 1;
-                }
-            } else {
-                val += *cmdline;
-                cmdline += 1;
-            }
-        }
-
-        args.push_back(std::move(val));
-    }
-
-    return args;
-}
-
-// the C runtime builds __argv by narrowing the wide values to the ANSI code page
-static bool wide_matches_arg(const std::wstring & wide, const char * arg) {
-    if (arg == nullptr) {
-        return false;
-    }
-    const int size = WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (size <= 0) {
-        return false;
-    }
-    std::string res(size, '\0');
-    (void) WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, res.data(), size, nullptr, nullptr);
-    res.pop_back(); // drop the terminating NUL
-    return res == arg;
-}
-
-#endif
-
-// the argv of one parsing call, with the original process values attached when they match
-//
-// Windows argv is ANSI-encoded and can be lossy. values from the process come from their wide
-// originals. all other values are UTF-8, as agreed by the callers
-struct arg_values {
-    int argc;
-    char ** argv;
-
-    arg_values(int argc, char ** argv);
-
-    // UTF-8 value at argv[i]
-    std::string text(int i) const;
-
-    // native path at argv[i]
-    std::filesystem::path path(int i) const;
-
-    // copy of the supplied list as UTF-8, with its own end marker. for usage callbacks
-    char ** text_argv();
-
-private:
-    bool from_process = false;
-#ifdef _WIN32
-    std::vector<std::wstring> wide; // wide original of argv[i], when from_process
-#endif
-    std::vector<std::string> text_buf;
-    std::vector<char *> text_ptr;
-};
-
-arg_values::arg_values(int argc, char ** argv) : argc(argc), argv(argv) {
-#ifdef _WIN32
-    // the CRT stores the process arguments of main(). the startup can copy the
-    // arrays, so compare the values and not the pointers
-    const int proc_argc = __argc;
-    char * const * proc_argv = __argv;
-
-    // a module can lack the process arguments. nothing can be verified then
-    if (proc_argc <= 0 || proc_argv == nullptr) {
-        return;
-    }
-
-    // the supplied list can also be a suffix of the process list, see app/llama.cpp
-    const int shift = proc_argc - argc;
-    if (shift < 0) {
-        return;
-    }
-
-    // only a full content match counts. a matching count is not enough
-    for (int i = 0; i < argc; ++i) {
-        if (argv[i] == nullptr || proc_argv[shift + i] == nullptr || strcmp(argv[i], proc_argv[shift + i]) != 0) {
-            return; // the caller supplied its own list, for example a test
-        }
-    }
-
-    // recover the wide originals. __wargv is set only by the wmain() startup, so split
-    // the wide command line with the rules of the C runtime instead
-    const std::vector<std::wstring> wargs = win_split_command_line(GetCommandLineW());
-
-    // keep the wide values only when the split reproduces the process list. otherwise the
-    // values stay exactly as the C runtime produced them
-    if (wargs.size() != (size_t) proc_argc) {
-        return;
-    }
-    for (int i = 0; i < proc_argc; ++i) {
-        if (!wide_matches_arg(wargs[i], proc_argv[i])) {
-            return;
-        }
-    }
-
-    wide.assign(wargs.begin() + shift, wargs.end());
-
-    from_process = true;
-#endif
-}
-
-std::string arg_values::text(int i) const {
-#ifdef _WIN32
-    if (from_process) {
-        // the ANSI value can be lossy, use the original
-        return wide_to_utf8(wide[i].c_str());
-    }
-#endif
-    return argv[i];
-}
-
-std::filesystem::path arg_values::path(int i) const {
-#ifdef _WIN32
-    if (from_process) {
-        return wide[i]; // no conversion
-    }
-    return std::filesystem::u8path(argv[i]); // caller values are UTF-8
-#else
-    return argv[i]; // native bytes, they need not be UTF-8
-#endif
-}
-
-char ** arg_values::text_argv() {
-    if (text_ptr.empty()) {
-        text_buf.clear();
+    try {
+        buf.reserve(argc);
         for (int i = 0; i < argc; ++i) {
-            text_buf.push_back(text(i));
+            buf.push_back(wide_to_utf8(wargv[i]));
         }
-        text_ptr.reserve(text_buf.size() + 1);
-        for (auto & val : text_buf) {
-            text_ptr.push_back(val.data());
-        }
-        text_ptr.push_back(nullptr); // the supplied list can have no end marker
+    } catch (const std::exception & e) {
+        fprintf(stderr, "%s\n", e.what());
+        return 1;
     }
-    return text_ptr.data();
+
+    ptrs.reserve(buf.size() + 1);
+    for (auto & val : buf) {
+        ptrs.push_back(val.data());
+    }
+    ptrs.push_back(nullptr);
+
+    return func(argc, ptrs.data());
 }
 
-static bool common_params_parse_ex(const arg_values & vals, common_params_context & ctx_arg) {
+#endif
+
+// an argument value is UTF-8 on Windows, and a native byte string elsewhere
+static std::filesystem::path value_to_path(const std::string & val) {
+#ifdef _WIN32
+    return std::filesystem::u8path(val);
+#else
+    return val;
+#endif
+}
+
+static bool common_params_parse_ex(int argc, char ** argv, common_params_context & ctx_arg) {
     common_params & params = ctx_arg.params;
 
     // setup log directly from params.verbosity: see tools/cli/cli.cpp
@@ -1035,7 +883,7 @@ static bool common_params_parse_ex(const arg_values & vals, common_params_contex
 
     // handle command line arguments
     auto check_arg = [&](int i) {
-        if (i+1 >= vals.argc) {
+        if (i+1 >= argc) {
             throw std::invalid_argument("expected value for argument");
         }
     };
@@ -1043,10 +891,10 @@ static bool common_params_parse_ex(const arg_values & vals, common_params_contex
     auto parse_cli_args = [&]() {
         std::set<std::string> seen_args;
 
-        for (int i = 1; i < vals.argc; i++) {
+        for (int i = 1; i < argc; i++) {
             const std::string arg_prefix = "--";
 
-            std::string arg = vals.text(i);
+            std::string arg = argv[i];
             if (arg.compare(0, arg_prefix.size(), arg_prefix) == 0) {
                 std::replace(arg.begin(), arg.end(), '_', '-');
             }
@@ -1078,13 +926,11 @@ static bool common_params_parse_ex(const arg_values & vals, common_params_contex
 
                 // arg with single value
                 check_arg(i);
-                ++i;
+                std::string val = argv[++i];
                 if (opt.handler_path) {
-                    // paths use the original value, never a text copy
-                    opt.handler_path(params, vals.path(i));
+                    opt.handler_path(params, value_to_path(val));
                     continue;
                 }
-                std::string val = vals.text(i);
                 if (opt.handler_int) {
                     opt.handler_int(params, std::stoi(val));
                     continue;
@@ -1096,7 +942,7 @@ static bool common_params_parse_ex(const arg_values & vals, common_params_contex
 
                 // arg with 2 values
                 check_arg(i);
-                std::string val2 = vals.text(++i);
+                std::string val2 = argv[++i];
                 if (opt.handler_str_str) {
                     opt.handler_str_str(params, val, val2);
                     continue;
@@ -1418,8 +1264,6 @@ static void add_rpc_devices(const std::string & servers) {
 }
 
 bool common_params_to_map(int argc, char ** argv, llama_example ex, std::map<common_arg, std::string> & out_map) {
-    arg_values vals(argc, argv);
-
     common_params dummy_params;
     common_params_context ctx_arg = common_params_parser_init(dummy_params, ex, nullptr);
 
@@ -1437,17 +1281,17 @@ bool common_params_to_map(int argc, char ** argv, llama_example ex, std::map<com
 
     // handle command line arguments
     auto check_arg = [&](int i) {
-        if (i+1 >= vals.argc) {
+        if (i+1 >= argc) {
             throw std::invalid_argument("expected value for argument");
         }
     };
 
     std::set<std::string> seen_args;
 
-    for (int i = 1; i < vals.argc; i++) {
+    for (int i = 1; i < argc; i++) {
         const std::string arg_prefix = "--";
 
-        std::string arg = vals.text(i);
+        std::string arg = argv[i];
         if (arg.compare(0, arg_prefix.size(), arg_prefix) == 0) {
             std::replace(arg.begin(), arg.end(), '_', '-');
         }
@@ -1471,7 +1315,7 @@ bool common_params_to_map(int argc, char ** argv, llama_example ex, std::map<com
         if (opt.value_hint != nullptr) {
             // arg with single value
             check_arg(i);
-            val = vals.text(++i);
+            val = argv[++i];
         }
         if (opt.value_hint_2 != nullptr) {
             // TODO: support arg with 2 values
@@ -1488,16 +1332,14 @@ bool common_params_parse(int argc, char ** argv, common_params & params, llama_e
     const common_params params_org = ctx_arg.params; // the example can modify the default params
 
     try {
-        arg_values vals(argc, argv);
-
-        if (!common_params_parse_ex(vals, ctx_arg)) {
+        if (!common_params_parse_ex(argc, argv, ctx_arg)) {
             ctx_arg.params = params_org;
             return false;
         }
         if (ctx_arg.params.usage) {
             common_params_print_usage(ctx_arg);
             if (ctx_arg.print_usage) {
-                ctx_arg.print_usage(vals.argc, vals.text_argv());
+                ctx_arg.print_usage(argc, argv);
             }
             common_log_flush(common_log_main());
             exit(0);

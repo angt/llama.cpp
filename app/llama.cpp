@@ -1,5 +1,6 @@
 #include "build-info.h"
 
+#include "arg.h"
 #include "llama.h"
 
 #include <cstdio>
@@ -126,7 +127,7 @@ static bool matches(std::string arg, const command & cmd) {
     return false;
 }
 
-int main(int argc, char ** argv) {
+static int app_main(int argc, char ** argv) {
     progname = argv[0];
 
     const std::string arg = argc >= 2 ? argv[1] : "help";
@@ -146,3 +147,13 @@ int main(int argc, char ** argv) {
     fprintf(stderr, "error: unknown command '%s'\n", arg.c_str());
     return 1;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t ** wargv) {
+    return common_args_run(argc, wargv, app_main);
+}
+#else
+int main(int argc, char ** argv) {
+    return app_main(argc, argv);
+}
+#endif

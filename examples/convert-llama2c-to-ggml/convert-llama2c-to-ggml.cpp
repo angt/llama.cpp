@@ -2,6 +2,7 @@
 #include "gguf.h"
 
 #include "llama.h"
+#include "arg.h"
 #include "common.h"
 #include "log.h"
 
@@ -889,7 +890,7 @@ static std::string basename(const std::string &path) {
     return path.substr(pos + 1);
 }
 
-int main(int argc, char ** argv) {
+static int run(int argc, char ** argv) {
     std::setlocale(LC_NUMERIC, "C");
 
     common_init();
@@ -957,3 +958,13 @@ int main(int argc, char ** argv) {
     ggml_free(model.ctx);
     return 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t ** wargv) {
+    return common_args_run(argc, wargv, run);
+}
+#else
+int main(int argc, char ** argv) {
+    return run(argc, argv);
+}
+#endif

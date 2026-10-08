@@ -1,5 +1,6 @@
 set(TARGET llama-tokenize)
 add_executable(${TARGET} tokenize.cpp)
+llama_use_wmain(${TARGET})
 if(LLAMA_TOOLS_INSTALL)
     install(TARGETS ${TARGET} RUNTIME)
 endif()

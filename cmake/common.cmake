@@ -56,3 +56,10 @@ function(llama_add_compile_flags)
         endif()
     endif()
 endfunction()
+
+# the target defines wmain() and receives its Windows arguments from it. GNU toolchains need an explicit wide startup
+function(llama_use_wmain target)
+    if (WIN32 AND NOT MSVC)
+        target_link_options(${target} PRIVATE -municode)
+    endif()
+endfunction()
