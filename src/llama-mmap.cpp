@@ -864,23 +864,9 @@ void llama_prefetch(llama_memory_ranges mr) {
         return (uintptr_t) a.addr < (uintptr_t) b.addr;
     });
 
+    // merge the memory ranges into page-aligned [first, last) spans
+    std::vector<std::pair<uintptr_t, uintptr_t>> spans;
     uintptr_t begin = 0, end = 0;
-#if defined(_WIN32)
-    // collect the mr and prefetch them in one call, so the reads can be issued concurrently
-    std::vector<WIN32_MEMORY_RANGE_ENTRY> entries;
-    auto prefetch = [&]() {
-        entries.push_back({ (PVOID) begin, (SIZE_T) (end - begin) });
-        return true;
-    };
-#else
-    auto prefetch = [&]() {
-        if (madvise((void *) begin, end - begin, MADV_WILLNEED) != 0) {
-            LLAMA_LOG_WARN("llama_prefetch: madvise(MADV_WILLNEED) failed: %s\n", strerror(errno));
-            return false;
-        }
-        return true;
-    };
-#endif
     for (const auto & range : mr) {
         if (!range.addr || range.size == 0) {
             continue;
@@ -889,9 +875,7 @@ void llama_prefetch(llama_memory_ranges mr) {
         const uintptr_t first = pointer / page * page;
         const uintptr_t last = (pointer + range.size + page - 1) / page * page;
         if (end && first > end) {
-            if (!prefetch()) {
-                return;
-            }
+            spans.emplace_back(begin, end);
             end = 0;
         }
         if (!end) {
@@ -900,12 +884,26 @@ void llama_prefetch(llama_memory_ranges mr) {
         end = std::max(end, last);
     }
     if (end) {
-        prefetch();
+        spans.emplace_back(begin, end);
     }
+
 #if defined(_WIN32)
+    // prefetch all spans in one call, so the reads can be issued concurrently
+    std::vector<WIN32_MEMORY_RANGE_ENTRY> entries;
+    for (const auto & [first, last] : spans) {
+        entries.push_back({ (PVOID) first, (SIZE_T) (last - first) });
+    }
     if (!entries.empty() && !pPrefetchVirtualMemory(GetCurrentProcess(), (ULONG_PTR) entries.size(), entries.data(), 0)) {
         LLAMA_LOG_WARN("llama_prefetch: PrefetchVirtualMemory failed: %s\n",
                 llama_format_win_err(GetLastError()).c_str());
+    }
+#else
+    // prefetching is best-effort - give up after the first failure, the remaining calls would fail as well
+    for (const auto & [first, last] : spans) {
+        if (madvise((void *) first, last - first, MADV_WILLNEED) != 0) {
+            LLAMA_LOG_WARN("llama_prefetch: madvise(MADV_WILLNEED) failed: %s\n", strerror(errno));
+            break;
+        }
     }
 #endif
 #else
