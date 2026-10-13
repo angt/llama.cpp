@@ -331,9 +331,19 @@ llama_context::llama_context(
     // with causal attention, the batch size is limited by the context size
     cparams.n_batch = cparams.causal_attn ? std::min(cparams.n_ctx, params.n_batch) : params.n_batch;
 
-    cparams.n_ubatch = std::min(cparams.n_batch, params.n_ubatch == 0 ? params.n_batch : params.n_ubatch);
+    // Non-causal encoding runs the whole batch in one graph. Then all tokens can attend to each other.
+    // Micro-batching is not possible, so the ubatch must cover the whole batch.
+    if (cparams.causal_attn) {
+        cparams.n_ubatch = std::min(cparams.n_batch, params.n_ubatch == 0 ? params.n_batch : params.n_ubatch);
+    } else {
+        cparams.n_ubatch = cparams.n_batch;
+    }
 
-    cparams.n_outputs_max = params.n_outputs_max == 0 || llama_model_has_encoder(&model) ? cparams.n_batch : params.n_outputs_max;
+    // Encoder-style and pooling models give one output per token of the batch.
+    // The per-sequence output limits of generation do not apply to them.
+    const bool is_encoder = llama_model_has_encoder(&model) || model.hparams.pooling_type != LLAMA_POOLING_TYPE_NONE;
+
+    cparams.n_outputs_max = params.n_outputs_max == 0 || is_encoder ? cparams.n_batch : params.n_outputs_max;
     cparams.n_outputs_max_per_seq = params.n_outputs_max_per_seq == 0 ?
             cparams.n_outputs_max : std::min(params.n_outputs_max_per_seq, cparams.n_outputs_max);
 
@@ -2381,7 +2391,11 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
 
     this->n_outputs = 0;
 
-    GGML_ASSERT(n_outputs_max <= cparams.n_outputs_max);
+    if (n_outputs_max > cparams.n_outputs_max) {
+        LLAMA_LOG_ERROR("%s: requested %" PRId64 " outputs but the context supports at most %u (n_outputs_max)\n",
+                __func__, n_outputs_max, cparams.n_outputs_max);
+        return 0;
+    }
 
     return n_outputs_max;
 }
