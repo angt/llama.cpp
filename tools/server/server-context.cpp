@@ -5232,12 +5232,12 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
         //SRV_DBG("Prompt: %s\n", prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
 
         if (!params.path_prompts_log_dir.empty()) {
-            const auto file_path = std::filesystem::path(params.path_prompts_log_dir) / string_format("%012" PRId64 ".txt", ggml_time_ms());
+            const auto file_path = std::filesystem::u8path(params.path_prompts_log_dir) / string_format("%012" PRId64 ".txt", ggml_time_ms());
             std::ofstream f(file_path);
             if (f) {
                 f << (prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
             } else {
-                SRV_ERR("failed to create %s\n", file_path.string().c_str());
+                SRV_ERR("failed to create %s\n", fs_path_to_utf8(file_path).c_str());
             }
         }
 

@@ -951,7 +951,7 @@ void fs_write_atomic(const std::filesystem::path & path, const std::string & dat
 }
 
 bool fs_is_directory(const std::string & path) {
-    std::filesystem::path dir(path);
+    std::filesystem::path dir = std::filesystem::u8path(path);
     return std::filesystem::exists(dir) && std::filesystem::is_directory(dir);
 }
 

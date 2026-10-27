@@ -14,7 +14,7 @@
 #undef NDEBUG
 #include <cassert>
 
-static void test(void) {
+static void test(int argc) {
     common_params params;
 
     auto assert_output_limits = [](int32_t n_batch, int32_t n_parallel, int32_t n_draft,
@@ -313,6 +313,28 @@ static void test(void) {
     assert(params.lora_adapters[2].path == "file3\"3\".gguf");
     assert(params.lora_adapters[3].path == "file4\".gguf");
 
+    printf("test-arg-parser: test caller argv is never replaced by the process argv\n\n");
+
+    {
+        // regression for https://github.com/ggml-org/llama.cpp/issues/26416:
+        // a synthetic argv must be respected even when its count matches the process argc
+        std::vector<std::string> synth = {"binary_name", "-m", "synth.gguf"};
+        while ((int) synth.size() < argc) {
+            synth.push_back("--verbose");
+        }
+        common_params synth_params;
+        assert(true == common_params_parse(synth.size(), list_str_to_char(synth).data(), synth_params, LLAMA_EXAMPLE_COMMON));
+        assert(synth_params.model.path == "synth.gguf");
+    }
+
+    {
+        // an argv slice is parsed as-is: its first element plays the program name
+        std::vector<std::string> synth = {"llama", "quantize", "-m", "slice.gguf"};
+        common_params synth_params;
+        assert(true == common_params_parse(synth.size() - 1, list_str_to_char(synth).data() + 1, synth_params, LLAMA_EXAMPLE_COMMON));
+        assert(synth_params.model.path == "slice.gguf");
+    }
+
 // skip this part on windows, because setenv is not supported
 #ifdef _WIN32
     printf("test-arg-parser: skip on windows build\n");
@@ -407,9 +429,9 @@ static void test(void) {
     printf("test-arg-parser: all tests OK\n\n");
 }
 
-int main(void) {
+int main(int argc, char **) {
     try {
-        test();
+        test(argc);
     } catch (std::exception & e) {
         fprintf(stderr, "test-arg-parser: exception: %s\n", e.what());
         return 1;

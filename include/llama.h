@@ -1663,7 +1663,7 @@ extern "C" {
 
     /// @details Extract the path prefix from the split_path if and only if the split_no and split_count match.
     ///          llama_split_prefix(split_prefix, 64, "/models/ggml-model-q4_0-00002-of-00004.gguf", 2, 4) => split_prefix = "/models/ggml-model-q4_0"
-    //  Returns the split_prefix length.
+    //  Returns the split_prefix length, or 0 if the numbers do not match or the prefix does not fit in the output buffer.
     LLAMA_API int32_t llama_split_prefix(char * split_prefix, size_t maxlen, const char * split_path, int32_t split_no, int32_t split_count);
 
     // Print system information

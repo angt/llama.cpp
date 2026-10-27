@@ -445,11 +445,19 @@ static fs::path get_executable_path() {
     return base_path + "/";
 #elif defined(_WIN32)
     std::vector<wchar_t> path(MAX_PATH);
-    DWORD len = GetModuleFileNameW(NULL, path.data(), path.size());
-    if (len == 0) {
-        return {};
+    std::wstring base_path;
+    while (true) {
+        // GetModuleFileNameW returns the buffer size when the path does not fit
+        DWORD len = GetModuleFileNameW(NULL, path.data(), (DWORD) path.size());
+        if (len == 0) {
+            return {};
+        }
+        if (len < path.size()) {
+            base_path.assign(path.data(), len);
+            break;
+        }
+        path.resize(path.size() * 2);
     }
-    std::wstring base_path(path.data(), len);
     // remove executable name
     auto last_slash = base_path.find_last_of('\\');
     if (last_slash != std::string::npos) {

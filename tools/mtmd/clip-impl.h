@@ -18,13 +18,6 @@
 #include <fstream>
 #include <random>
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
-
 // Internal header for clip.cpp
 
 #define MTMD_INTERNAL_HEADER
@@ -983,22 +976,6 @@ struct clip_image_f32_batch {
 //
 // common utils
 //
-
-#ifdef _WIN32
-static std::ifstream open_ifstream_binary(const std::string & fname) {
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, NULL, 0);
-    if (!wlen) {
-        throw std::runtime_error("failed to convert filename to UTF-16: " + fname);
-    }
-    std::vector<wchar_t> wfname(wlen);
-    (void)MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, wfname.data(), wlen);
-    return std::ifstream(wfname.data(), std::ios::binary);
-}
-#else
-static std::ifstream open_ifstream_binary(const std::string & fname) {
-    return std::ifstream(fname, std::ios::binary);
-}
-#endif
 
 // in test-mtmd-impl, we include woth common.h and this file, and these functions are duplicated
 // this is a quick fix to avoid compilation errors

@@ -586,8 +586,11 @@ int32_t llama_split_prefix(
     const size_t size_prefix = str_split_path.size() - str_postfix.size();
 
     if (str_split_path.compare(size_prefix, std::string::npos, str_postfix) == 0) {
-        const size_t copy_len = std::min(size_prefix + 1, maxlen);
-        snprintf(split_prefix, copy_len, "%s", split_path);
+        if (size_prefix + 1 > maxlen) {
+            return 0;
+        }
+        memcpy(split_prefix, split_path, size_prefix);
+        split_prefix[size_prefix] = '\0';
 
         return (int32_t) size_prefix;
     }

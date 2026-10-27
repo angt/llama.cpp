@@ -22,20 +22,6 @@
 
 #include "http.h"
 
-#ifndef __EMSCRIPTEN__
-#ifdef __linux__
-#include <linux/limits.h>
-#elif defined(_WIN32)
-#   if !defined(PATH_MAX)
-#   define PATH_MAX MAX_PATH
-#   endif
-#elif defined(_AIX)
-#include <sys/limits.h>
-#else
-#include <sys/syslimits.h>
-#endif
-#endif
-
 //
 // downloader
 //
@@ -51,10 +37,10 @@ static void write_etag(const std::string & path, const std::string & etag) {
 
 static std::string read_etag(const std::string & path) {
     const std::string etag_path = path + ".etag";
-    if (!std::filesystem::exists(etag_path)) {
+    if (!std::filesystem::exists(std::filesystem::u8path(etag_path))) {
         return {};
     }
-    std::ifstream etag_in(etag_path);
+    std::ifstream etag_in(std::filesystem::u8path(etag_path));
     if (!etag_in) {
         LOG_ERR("%s: could not open .etag file for reading: %s\n", __func__, etag_path.c_str());
         return {};
@@ -178,7 +164,7 @@ static bool common_pull_file(httplib::Client & cli,
                              bool supports_ranges,
                              common_download_progress & p,
                              common_download_callback * callback) {
-    std::ofstream ofs(path_tmp, std::ios::binary | std::ios::app);
+    std::ofstream ofs(std::filesystem::u8path(path_tmp), std::ios::binary | std::ios::app);
     if (!ofs.is_open()) {
         LOG_ERR("%s: error opening local file for writing: %s\n", __func__, path_tmp.c_str());
         return false;
@@ -201,7 +187,8 @@ static bool common_pull_file(httplib::Client & cli,
                     // 200 from a server that ignores the range; drop it, so the next
                     // attempt starts over instead of wedging on the same answer
                     ofs.close();
-                    remove(path_tmp.c_str());
+                    std::error_code ec;
+                    std::filesystem::remove(std::filesystem::u8path(path_tmp), ec);
                 }
                 return false;
             }
@@ -381,7 +368,8 @@ static int common_download_file_single_online(const std::string & url,
             return finish(304); // 304 Not Modified - fake cached response
         }
         // pass this point, the file exists but is different from the server version, so we need to redownload it
-        if (remove(path.c_str()) != 0) {
+        std::error_code ec;
+        if (!std::filesystem::remove(std::filesystem::u8path(path), ec)) {
             LOG_ERR("%s: unable to delete file: %s\n", __func__, path.c_str());
             return finish(-1);
         }
@@ -389,16 +377,17 @@ static int common_download_file_single_online(const std::string & url,
 
     { // silent
         std::error_code ec;
-        std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+        std::filesystem::create_directories(std::filesystem::u8path(path).parent_path(), ec);
     }
 
     bool success = false;
     int delay = retry_delay_seconds;
 
     if (!skip_etag && !etag.empty()) {
-        if (std::filesystem::exists(path_temporary) && read_etag(path_temporary) != etag) {
+        std::error_code ec;
+        if (std::filesystem::exists(std::filesystem::u8path(path_temporary)) && read_etag(path_temporary) != etag) {
             LOG_WRN("%s: partial file does not match the server etag, discarding it: %s\n", __func__, path_temporary.c_str());
-            if (remove(path_temporary.c_str()) != 0) {
+            if (!std::filesystem::remove(std::filesystem::u8path(path_temporary), ec)) {
                 LOG_ERR("%s: unable to delete file: %s\n", __func__, path_temporary.c_str());
                 return finish(-1);
             }
@@ -408,8 +397,8 @@ static int common_download_file_single_online(const std::string & url,
 
     if (opts.callback) {
         // report the resume offset, so a resumed file does not start at 0
-        p.downloaded = supports_ranges && std::filesystem::exists(path_temporary) ?
-                       std::filesystem::file_size(path_temporary) : 0;
+        p.downloaded = supports_ranges && std::filesystem::exists(std::filesystem::u8path(path_temporary)) ?
+                       std::filesystem::file_size(std::filesystem::u8path(path_temporary)) : 0;
         opts.callback->on_update(p);
     }
 
@@ -425,10 +414,11 @@ static int common_download_file_single_online(const std::string & url,
 
         size_t existing_size = 0;
 
-        if (std::filesystem::exists(path_temporary)) {
+        if (std::filesystem::exists(std::filesystem::u8path(path_temporary))) {
+            std::error_code ec;
             if (supports_ranges) {
-                existing_size = std::filesystem::file_size(path_temporary);
-            } else if (remove(path_temporary.c_str()) != 0) {
+                existing_size = std::filesystem::file_size(std::filesystem::u8path(path_temporary));
+            } else if (!std::filesystem::remove(std::filesystem::u8path(path_temporary), ec)) {
                 LOG_ERR("%s: unable to delete file: %s\n", __func__, path_temporary.c_str());
                 break;
             }
@@ -441,13 +431,16 @@ static int common_download_file_single_online(const std::string & url,
                 path_temporary.c_str(), etag.c_str());
 
         if (common_pull_file(cli, parts.path, path_temporary, supports_ranges, p, opts.callback)) {
-            if (std::rename(path_temporary.c_str(), path.c_str()) != 0) {
+            std::error_code ec;
+            std::filesystem::rename(std::filesystem::u8path(path_temporary), std::filesystem::u8path(path), ec);
+            if (ec) {
                 LOG_ERR("%s: unable to rename file: %s to %s\n", __func__, path_temporary.c_str(), path.c_str());
                 break;
             }
             if (!etag.empty() && !skip_etag) {
                 write_etag(path, etag);
-                remove((path_temporary + ".etag").c_str());
+                std::error_code ec;
+                std::filesystem::remove(std::filesystem::u8path(path_temporary + ".etag"), ec);
             }
             success = true;
             break;
@@ -1174,7 +1167,7 @@ static bool remove_snapshot_entries(const std::string & repo_id, const std::vect
     // collect blobs still referenced by remaining snapshot entries
     std::unordered_set<std::string> still_referenced;
     for (const auto & f : hf_cache::get_cached_files(repo_id)) {
-        fs::path p(f.local_path);
+        fs::path p = fs::u8path(f.local_path);
         std::error_code ec;
         if (fs::is_symlink(p, ec)) {
             auto target = fs::read_symlink(p, ec);

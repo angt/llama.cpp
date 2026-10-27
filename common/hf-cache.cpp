@@ -166,8 +166,9 @@ std::string get_lock_path(const std::string & repo_id, const std::string & oid) 
     if (!is_valid_repo_id(repo_id) || !is_valid_oid(oid)) {
         return {};
     }
-    fs::path lock_path = fs::path(get_cache_path()) / ".locks" / repo_to_folder_name(repo_id) / (oid + ".lock");
-    return lock_path.string();
+    // built from the native cache directory to avoid a native -> UTF-8 -> native round trip
+    const fs::path lock_path = get_cache_directory() / ".locks" / fs::u8path(repo_to_folder_name(repo_id)) / fs::u8path(oid + ".lock");
+    return fs_path_to_utf8(lock_path);
 }
 
 static bool is_valid_subpath(const fs::path & path, const fs::path & subpath) {

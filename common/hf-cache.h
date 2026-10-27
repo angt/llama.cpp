@@ -27,7 +27,7 @@ hf_files get_repo_files(
 
 hf_files get_cached_files(const std::string & repo_id = {});
 
-// Lock file path for a blob, shared with the hf CLI: <cache>/.locks/<repo folder>/<oid>.lock
+// Lock file path as a UTF-8 string for a blob, shared with the hf CLI: <cache>/.locks/<repo folder>/<oid>.lock
 // Pure path computation: creates nothing. Returns an empty string on invalid repo or oid.
 std::string get_lock_path(const std::string & repo_id, const std::string & oid);
 

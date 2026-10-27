@@ -8,7 +8,9 @@ on:
     paths: [
       '.github/workflows/behavior-check.yml',
       '**/CMakeLists.txt',
-      '**/.cmake',
+      '**/*.cmake',
+      '**/*.manifest',
+      '**/*.rc',
       '**/*.h',
       '**/*.hpp',
       '**/*.c',
@@ -20,7 +22,9 @@ on:
     paths: [
       '.github/workflows/behavior-check.yml',
       '**/CMakeLists.txt',
-      '**/.cmake',
+      '**/*.cmake',
+      '**/*.manifest',
+      '**/*.rc',
       '**/*.h',
       '**/*.hpp',
       '**/*.c',

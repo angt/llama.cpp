@@ -2,6 +2,8 @@
 #include "log.h"
 #include "json.h"
 
+#include "ggml.h"
+
 #include <chrono>
 #include <condition_variable>
 #include <cstdarg>
@@ -396,7 +398,7 @@ public:
         }
 
         if (path) {
-            file = fopen(path, "w");
+            file = ggml_fopen(path, "w");
         } else {
             file = nullptr;
         }

@@ -319,10 +319,25 @@ set_tests_properties(test-llama-context-model PROPERTIES FIXTURES_REQUIRED test-
 llama_build_and_test(test-thread-safety.cpp  LABEL "main backend"  ARGS -m "${MODEL_DEST}" -ngl 99 -p "The meaning of life is" -n 128 -c 256 -ub 32 -np 4 -t 2)
 set_tests_properties(test-thread-safety PROPERTIES FIXTURES_REQUIRED test-download-model)
 
-llama_build_and_test(test-arg-parser.cpp  LABEL behavior)
+# the two ignored args keep the process argc at 3 for the argv replacement regression test
+llama_build_and_test(test-arg-parser.cpp  LABEL behavior ARGS ignored-1 ignored-2)
+llama_build_and_test(test-split-path.cpp  LABEL behavior)
 llama_build_and_test(test-model-resolution.cpp  LABEL behavior)
 # the test serves its repos from an httplib server, and the library links it privately
 target_link_libraries(test-model-resolution PRIVATE cpp-httplib)
+
+if (WIN32)
+    llama_build(test-win-startup.cpp)
+
+    # the test also checks the embedded manifest of every shipped executable this build defines
+    set(TEST_WIN_MANIFEST_EXES)
+    foreach(_target llama-app llama-cli llama-server llama-completion llama-bench llama-batched-bench llama-quantize llama-gguf-split llama-imatrix llama-perplexity llama-tokenize llama-tts llama-mtmd-cli llama-export-lora llama-cvector-generator llama-fit-params llama-results rpc-server)
+        if (TARGET ${_target})
+            list(APPEND TEST_WIN_MANIFEST_EXES $<TARGET_FILE:${_target}>)
+        endif()
+    endforeach()
+    llama_test(test-win-startup LABEL behavior ARGS ${TEST_WIN_MANIFEST_EXES})
+endif()
 
 if (NOT LLAMA_SANITIZE_ADDRESS AND NOT GGML_SCHED_NO_REALLOC)
   # TODO: repair known memory leaks

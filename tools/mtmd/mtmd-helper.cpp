@@ -11,6 +11,7 @@
 #include "mtmd-helper.h"
 #include "mtmd-helper-common.h"
 #include "llama.h"
+#include "ggml.h"
 
 #include "hash/hash.h"
 
@@ -458,22 +459,7 @@ mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_buf(const mtmd_context *
 
 mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_file(const mtmd_context * ctx, const char * fname, bool placeholder,
                                                              mtmd_helper_init_opt opt) {
-#ifdef _WIN32
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, fname, -1, NULL, 0);
-    if (!wlen) {
-        LOG_ERR("Unable to convert filename to UTF-16: %s\n", fname);
-        return {nullptr, nullptr};
-    }
-    std::vector<wchar_t> wfname(wlen);
-    wlen = MultiByteToWideChar(CP_UTF8, 0, fname, -1, wfname.data(), wlen);
-    if (!wlen) {
-        LOG_ERR("Unable to convert filename to UTF-16: %s\n", fname);
-        return {nullptr, nullptr};
-    }
-    FILE * f = _wfopen(wfname.data(), L"rb");
-#else
-    FILE * f = fopen(fname, "rb");
-#endif
+    FILE * f = ggml_fopen(fname, "rb");
     if (!f) {
         LOG_ERR("Unable to open file %s: %s\n", fname, strerror(errno));
         return {nullptr, nullptr};

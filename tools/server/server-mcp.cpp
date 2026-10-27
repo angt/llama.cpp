@@ -359,12 +359,16 @@ static std::string mcp_resolve_command(const std::string & command) {
 #if defined(_WIN32)
     // For Windows: make sure we handle ".exe" correctly, as well as UTF-8
     std::wstring wcmd = utf8_to_wstring(command);
-    wchar_t      buf[MAX_PATH * 4];
-    const DWORD  cap = (DWORD) (sizeof(buf) / sizeof(buf[0]));
 
     auto search = [&](const wchar_t * ext) -> std::string {
-        DWORD n = SearchPathW(NULL, wcmd.c_str(), ext, cap, buf, NULL);
-        return (n > 0 && n < cap) ? wide_to_utf8(buf, (int) n) : std::string();
+        // SearchPathW returns the required buffer size when the path does not fit
+        DWORD need = SearchPathW(NULL, wcmd.c_str(), ext, 0, NULL, NULL);
+        if (!need) {
+            return std::string();
+        }
+        std::wstring buf(need, L'\0');
+        DWORD n = SearchPathW(NULL, wcmd.c_str(), ext, need, &buf[0], NULL);
+        return (n > 0 && n < need) ? wide_to_utf8(buf.data(), (int) n) : std::string();
     };
 
     std::string found = search(NULL); // exact path / already-extensioned / .exe on PATH

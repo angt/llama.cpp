@@ -562,7 +562,7 @@ static std::string unfinished_downloads_path() {
 }
 
 void server_unfinished_downloads::load() {
-    std::ifstream in(unfinished_downloads_path());
+    std::ifstream in(std::filesystem::u8path(unfinished_downloads_path()));
     if (!in) {
         return;
     }

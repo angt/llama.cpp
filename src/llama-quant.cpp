@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <cinttypes>
+#include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <regex>
@@ -1214,12 +1215,16 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         GGML_ASSERT(ctx_outs[cur_split] && "Find uninitialized gguf_context");
         std::string fname = fname_out;
         if (params->keep_split) {
-            std::vector<char> split_path(llama_path_max(), 0);
-            llama_split_path(split_path.data(), split_path.size(), fname_out.c_str(), cur_split, n_split);
-            fname = std::string(split_path.data());
+            // split names are the output name plus the "-%05d-of-%05d.gguf" suffix (up to 30 chars)
+            std::string split_path(fname_out.size() + 31, '\0');
+            int ret = llama_split_path(split_path.data(), split_path.size(), fname_out.c_str(), cur_split, n_split);
+            if (!ret) {
+                throw std::runtime_error(format("failed to build split name for %s", fname_out.c_str()));
+            }
+            fname = std::string(split_path.data(), ret);
         }
 
-        fout = std::ofstream(fname, std::ios::binary);
+        fout = std::ofstream(std::filesystem::u8path(fname), std::ios::binary);
         fout.exceptions(std::ofstream::failbit); // fail fast on write errors
         const size_t meta_size = gguf_get_meta_size(ctx_outs[cur_split].get());
         // placeholder for the meta data
