@@ -10,6 +10,9 @@
 
 set(LLAMA_WIN_APP_MANIFEST "${CMAKE_CURRENT_LIST_DIR}/../common/win-app.manifest")
 
+# this module, so independent builds (e.g. vulkan-shaders-gen) can include the same logic
+set(LLAMA_WIN_APP_CMAKE "${CMAKE_CURRENT_LIST_FILE}")
+
 if (WIN32)
     # MSVC is set for the cl command line only; clang with the MSVC ABI simulates it without setting MSVC
     if (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
@@ -26,7 +29,9 @@ if (WIN32)
 
     if (NOT LLAMA_WIN_APP_MSVC_ABI)
         enable_language(RC)
-        if (NOT CMAKE_RC_COMPILER MATCHES "windres")
+        # only resinator (zig rc) accepts the /:options below; windres, llvm-rc and rc.exe keep CMake's rules
+        get_filename_component(LLAMA_WIN_APP_RC_NAME "${CMAKE_RC_COMPILER}" NAME)
+        if (LLAMA_WIN_APP_RC_NAME MATCHES "zig|resinator")
             # CMake's Windows-GNU link rules route objects through objects.a; GNU links dispatch members by content and reject a .res container there
             # resinator can emit a COFF object instead. pin its machine to the target arch (its default X64 would break ARM64)
             string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" LLAMA_WIN_APP_RC_ARCH)
@@ -80,7 +85,7 @@ endfunction()
 
 # apply the manifest to all executable targets created in the project-owned
 # directories. independent builds (e.g. vulkan-shaders-gen) are not reached
-# here; they embed the shared manifest directly, see ggml/src/ggml-vulkan
+# here; they include this module directly, see ggml/src/ggml-vulkan
 function(llama_apply_app_manifests)
     if (NOT WIN32)
         return()

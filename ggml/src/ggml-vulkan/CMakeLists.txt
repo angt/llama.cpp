@@ -184,11 +184,9 @@ if (Vulkan_FOUND)
         message(STATUS "vulkan-shaders-gen toolchain file: ${HOST_CMAKE_TOOLCHAIN_FILE}")
     endif()
 
-    # forward the shared app manifest from the llama.cpp build to the host tool
-    if (DEFINED LLAMA_WIN_APP_MANIFEST AND DEFINED LLAMA_WIN_APP_MANIFEST_RC)
-        list(APPEND VULKAN_SHADER_GEN_CMAKE_ARGS
-            -DLLAMA_WIN_APP_MANIFEST=${LLAMA_WIN_APP_MANIFEST}
-            -DLLAMA_WIN_APP_MANIFEST_RC=${LLAMA_WIN_APP_MANIFEST_RC})
+    # forward the shared app manifest module from the llama.cpp build to the host tool
+    if (WIN32 AND DEFINED LLAMA_WIN_APP_CMAKE)
+        list(APPEND VULKAN_SHADER_GEN_CMAKE_ARGS -DLLAMA_WIN_APP_CMAKE=${LLAMA_WIN_APP_CMAKE})
     endif()
 
     ExternalProject_Add(
