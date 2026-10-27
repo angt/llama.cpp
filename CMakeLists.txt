@@ -242,11 +242,6 @@ if (LLAMA_BUILD_COMMON)
     add_subdirectory(common)
 endif()
 
-if (LLAMA_BUILD_COMMON AND LLAMA_BUILD_TESTS AND NOT CMAKE_JS_VERSION)
-    include(CTest)
-    add_subdirectory(tests)
-endif()
-
 if (LLAMA_BUILD_COMMON AND LLAMA_BUILD_EXAMPLES)
     add_subdirectory(examples)
     add_subdirectory(pocs)
@@ -268,6 +263,12 @@ endif()
 option(LLAMA_BUILD_MTMD "llama: build tools/mtmd library standalone" OFF)
 if (LLAMA_BUILD_MTMD AND NOT (LLAMA_BUILD_COMMON AND LLAMA_BUILD_TOOLS))
     add_subdirectory(tools/mtmd)
+endif()
+
+# tests come last: test-win-startup collects the shipped executables by target name
+if (LLAMA_BUILD_COMMON AND LLAMA_BUILD_TESTS AND NOT CMAKE_JS_VERSION)
+    include(CTest)
+    add_subdirectory(tests)
 endif()
 
 # embed the shared application manifest in all project-owned executables
