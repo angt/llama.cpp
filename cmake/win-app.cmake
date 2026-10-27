@@ -21,41 +21,17 @@ if (WIN32)
         set(LLAMA_WIN_APP_MSVC_ABI FALSE)
     endif()
 
-    # generated resource script for the GNU-ABI path. it references the shared
-    # manifest by absolute path, so no include path resolution is needed
-    set(LLAMA_WIN_APP_MANIFEST_RC "${CMAKE_CURRENT_BINARY_DIR}/win-app-manifest.rc")
-    configure_file("${CMAKE_CURRENT_LIST_DIR}/win-app.rc.in" "${LLAMA_WIN_APP_MANIFEST_RC}" @ONLY)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${LLAMA_WIN_APP_MANIFEST}")
-
     if (NOT LLAMA_WIN_APP_MSVC_ABI)
+        # llama_add_app_manifest links the resource via $<TARGET_OBJECTS:>, which needs CMake 3.21
+        if (CMAKE_VERSION VERSION_LESS 3.21)
+            message(FATAL_ERROR "CMake 3.21 or newer is required to build for Windows with the GNU ABI")
+        endif()
         enable_language(RC)
-        get_filename_component(LLAMA_WIN_APP_RC_NAME "${CMAKE_RC_COMPILER}" NAME)
 
-        # CMake's Windows-GNU link rules route objects through objects.a; GNU links dispatch members by content and reject a .res container there
-        # so the RC step must emit a COFF object. resinator /:target and llvm-cvtres /MACHINE both take PE machine names
-        string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" LLAMA_WIN_APP_RC_ARCH)
-        if (LLAMA_WIN_APP_RC_ARCH MATCHES "^(arm64|aarch64)$")
-            set(LLAMA_WIN_APP_RC_ARCH arm64)
-        elseif (LLAMA_WIN_APP_RC_ARCH MATCHES "^(x86_64|x64|amd64)$")
-            set(LLAMA_WIN_APP_RC_ARCH x64)
-        elseif (LLAMA_WIN_APP_RC_ARCH MATCHES "^(x86|i[3-6]86)$")
-            set(LLAMA_WIN_APP_RC_ARCH x86)
-        endif()
-
-        if (LLAMA_WIN_APP_RC_NAME MATCHES "zig|resinator")
-            # resinator (zig rc) compiles straight to COFF; pin its machine to the target arch (its default X64 would break ARM64)
-            set(CMAKE_RC_COMPILE_OBJECT "<CMAKE_RC_COMPILER> <DEFINES> <INCLUDES> <FLAGS> /:output-format coff /:target ${LLAMA_WIN_APP_RC_ARCH} /fo <OBJECT> <SOURCE>")
-        elseif (LLAMA_WIN_APP_RC_NAME MATCHES "llvm-rc")
-            # llvm-rc only emits .res containers; llvm-cvtres converts one to COFF and reads the input fully first, so /OUT can reuse the path
-            # resolve the real path first: distros ship versioned names (llvm-rc-18) as symlinks into the LLVM bin dir, which holds the unversioned tools
-            get_filename_component(LLAMA_WIN_APP_RC_REAL "${CMAKE_RC_COMPILER}" REALPATH)
-            get_filename_component(LLAMA_WIN_APP_RC_DIR "${LLAMA_WIN_APP_RC_REAL}" DIRECTORY)
-            find_program(LLAMA_WIN_APP_CVTRES NAMES llvm-cvtres llvm-cvtres.exe HINTS "${LLAMA_WIN_APP_RC_DIR}")
-            if (NOT LLAMA_WIN_APP_CVTRES)
-                message(FATAL_ERROR "llvm-cvtres not found; it is needed to convert llvm-rc output to COFF")
-            endif()
-            set(CMAKE_RC_COMPILE_OBJECT "${CMAKE_RC_COMPILE_OBJECT} && \"${LLAMA_WIN_APP_CVTRES}\" /MACHINE:${LLAMA_WIN_APP_RC_ARCH} /OUT:<OBJECT> <OBJECT>")
-        endif()
+        # generated resource script. it references the shared manifest by absolute path, so no include path resolution is needed
+        set(LLAMA_WIN_APP_MANIFEST_RC "${CMAKE_CURRENT_BINARY_DIR}/win-app-manifest.rc")
+        configure_file("${CMAKE_CURRENT_LIST_DIR}/win-app.rc.in" "${LLAMA_WIN_APP_MANIFEST_RC}" @ONLY)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${LLAMA_WIN_APP_MANIFEST}")
     endif()
 endif()
 
@@ -73,14 +49,15 @@ function(llama_add_app_manifest target)
     endif()
     if (LLAMA_WIN_APP_MSVC_ABI)
         # the linker merges the manifest source into its generated manifest (execution level etc.)
-        target_sources(${target} PRIVATE ${LLAMA_WIN_APP_MANIFEST})
+        target_sources(${target} PRIVATE "${LLAMA_WIN_APP_MANIFEST}")
     else()
         # MinGW / MSYS2 / Zig: a .manifest source is not embedded by the GNU ABI, compile a resource instead
         if (NOT TARGET llama-win-app-manifest-res)
             add_library(llama-win-app-manifest-res OBJECT ${LLAMA_WIN_APP_MANIFEST_RC})
             set_source_files_properties(${LLAMA_WIN_APP_MANIFEST_RC} PROPERTIES OBJECT_DEPENDS "${LLAMA_WIN_APP_MANIFEST}")
         endif()
-        target_link_libraries(${target} PRIVATE llama-win-app-manifest-res)
+        # $<TARGET_OBJECTS:> keeps the .res out of objects.a (GNU link rules), where a .res container member is rejected
+        target_link_libraries(${target} PRIVATE "$<TARGET_OBJECTS:llama-win-app-manifest-res>")
     endif()
 endfunction()
 
