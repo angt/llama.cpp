@@ -29,20 +29,30 @@ if (WIN32)
 
     if (NOT LLAMA_WIN_APP_MSVC_ABI)
         enable_language(RC)
-        # only resinator (zig rc) accepts the /:options below; windres, llvm-rc and rc.exe keep CMake's rules
         get_filename_component(LLAMA_WIN_APP_RC_NAME "${CMAKE_RC_COMPILER}" NAME)
+
+        # CMake's Windows-GNU link rules route objects through objects.a; GNU links dispatch members by content and reject a .res container there
+        # so the RC step must emit a COFF object. resinator /:target and llvm-cvtres /MACHINE both take PE machine names
+        string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" LLAMA_WIN_APP_RC_ARCH)
+        if (LLAMA_WIN_APP_RC_ARCH MATCHES "^(arm64|aarch64)$")
+            set(LLAMA_WIN_APP_RC_ARCH arm64)
+        elseif (LLAMA_WIN_APP_RC_ARCH MATCHES "^(x86_64|x64|amd64)$")
+            set(LLAMA_WIN_APP_RC_ARCH x64)
+        elseif (LLAMA_WIN_APP_RC_ARCH MATCHES "^(x86|i[3-6]86)$")
+            set(LLAMA_WIN_APP_RC_ARCH x86)
+        endif()
+
         if (LLAMA_WIN_APP_RC_NAME MATCHES "zig|resinator")
-            # CMake's Windows-GNU link rules route objects through objects.a; GNU links dispatch members by content and reject a .res container there
-            # resinator can emit a COFF object instead. pin its machine to the target arch (its default X64 would break ARM64)
-            string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" LLAMA_WIN_APP_RC_ARCH)
-            if (LLAMA_WIN_APP_RC_ARCH MATCHES "^(arm64|aarch64)$")
-                set(LLAMA_WIN_APP_RC_ARCH aarch64)
-            elseif (LLAMA_WIN_APP_RC_ARCH MATCHES "^(x86_64|x64|amd64)$")
-                set(LLAMA_WIN_APP_RC_ARCH x86_64)
-            elseif (LLAMA_WIN_APP_RC_ARCH MATCHES "^(x86|i[3-6]86)$")
-                set(LLAMA_WIN_APP_RC_ARCH x86)
-            endif()
+            # resinator (zig rc) compiles straight to COFF; pin its machine to the target arch (its default X64 would break ARM64)
             set(CMAKE_RC_COMPILE_OBJECT "<CMAKE_RC_COMPILER> <DEFINES> <INCLUDES> <FLAGS> /:output-format coff /:target ${LLAMA_WIN_APP_RC_ARCH} /fo <OBJECT> <SOURCE>")
+        elseif (LLAMA_WIN_APP_RC_NAME MATCHES "llvm-rc")
+            # llvm-rc only emits .res containers; llvm-cvtres converts one to COFF and reads the input fully first, so /OUT can reuse the path
+            get_filename_component(LLAMA_WIN_APP_RC_DIR "${CMAKE_RC_COMPILER}" DIRECTORY)
+            find_program(LLAMA_WIN_APP_CVTRES NAMES llvm-cvtres llvm-cvtres.exe HINTS "${LLAMA_WIN_APP_RC_DIR}")
+            if (NOT LLAMA_WIN_APP_CVTRES)
+                message(FATAL_ERROR "llvm-cvtres not found; it is needed to convert llvm-rc output to COFF")
+            endif()
+            set(CMAKE_RC_COMPILE_OBJECT "${CMAKE_RC_COMPILE_OBJECT} && ${LLAMA_WIN_APP_CVTRES} /MACHINE:${LLAMA_WIN_APP_RC_ARCH} /OUT:<OBJECT> <OBJECT>")
         endif()
     endif()
 endif()
