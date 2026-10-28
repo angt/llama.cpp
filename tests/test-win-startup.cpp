@@ -77,6 +77,20 @@ static bool check_manifest(const wchar_t * exe_path) {
         && xml.find(">true</longPathAware>") != std::string::npos;
 }
 
+// read the LongPathsEnabled machine policy: 1 on, 0 off (the default, also when the value is absent), -1 when the state cannot be read
+static int query_long_paths_policy() {
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    LSTATUS st = RegGetValueW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\FileSystem", L"LongPathsEnabled", RRF_RT_REG_DWORD, nullptr, &value, &size);
+    if (st == ERROR_SUCCESS) {
+        return value ? 1 : 0;
+    }
+    if (st == ERROR_FILE_NOT_FOUND || st == ERROR_PATH_NOT_FOUND) {
+        return 0;
+    }
+    return -1;
+}
+
 // quote one argument the way the Windows CRT and CommandLineToArgvW parse it back
 static std::wstring quote_arg(const std::wstring & arg) {
     if (!arg.empty() && arg.find_first_of(L" \t\n\v\"") == std::wstring::npos) {
@@ -205,7 +219,12 @@ int main(int argc, char ** argv) {
 
         std::filesystem::create_directories(dir, ec);
         if (ec) {
-            // the short base succeeded, so this refusal is the long-path policy, not a filesystem error
+            // skip only when the policy is known to be off: the short base does not prove the cause
+            const int policy = query_long_paths_policy();
+            if (policy != 0) {
+                fprintf(stderr, "cannot create long directory: %s (LongPathsEnabled policy: %s)\n", ec.message().c_str(), policy < 0 ? "unknown" : "on");
+            }
+            assert(policy == 0);
             printf("test-win-startup: SKIP long path test (LongPathsEnabled=1 required): %s\n", ec.message().c_str());
         } else {
             std::filesystem::path file = dir / "file.txt";
