@@ -408,7 +408,7 @@ server_models::server_models(
 
     // set binary path
     try {
-        bin_path = fs_path_to_utf8(get_server_exec_path());
+        bin_path = get_server_exec_path().string();
     } catch (const std::exception & e) {
         bin_path = argv[0];
         SRV_WRN("failed to get server executable path: %s\n", e.what());
@@ -562,7 +562,7 @@ static std::string unfinished_downloads_path() {
 }
 
 void server_unfinished_downloads::load() {
-    std::ifstream in(std::filesystem::u8path(unfinished_downloads_path()));
+    std::ifstream in(unfinished_downloads_path());
     if (!in) {
         return;
     }
@@ -597,7 +597,7 @@ void server_unfinished_downloads::save() {
         data["downloads"].push_back({ {"model", d.model}, {"sidecars", d.sidecars}, {"partials", partials} });
     }
     try {
-        fs_write_atomic(std::filesystem::u8path(unfinished_downloads_path()), data.dump());
+        fs_write_atomic(std::filesystem::path(unfinished_downloads_path()), data.dump());
     } catch (const std::exception & e) {
         LOG_WRN("failed to record unfinished downloads: %s\n", e.what());
     }
@@ -614,7 +614,7 @@ void server_unfinished_downloads::delete_partials(const std::vector<common_downl
             continue;
         }
         std::error_code ec;
-        std::filesystem::remove(std::filesystem::u8path(p.path), ec);
+        std::filesystem::remove(std::filesystem::path(p.path), ec);
     }
 }
 

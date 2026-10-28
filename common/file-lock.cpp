@@ -32,8 +32,8 @@ common_file_lock::common_file_lock(const std::string & lock_path) {
 // the \\?\ prefix (for paths longer than 255 chars) is only accepted on absolute paths
 // with backslash separators: normalize first, then check the length of the absolute form
 static std::wstring as_extended_path(const std::string & path) {
-    // lock paths are UTF-8
-    std::wstring wide = std::filesystem::u8path(path).wstring();
+    // lock paths are UTF-8; this is a genuine wide boundary for _wopen
+    std::wstring wide = utf8_to_wstring(path);
 
     if (wide.rfind(L"\\\\?\\", 0) == 0) {
         return wide;
@@ -121,11 +121,11 @@ bool common_file_lock::acquire(const std::function<bool()> & keep_waiting) {
     // the lock file is opened by try_lock, its parent must exist by then
     if (!lock_path.empty()) {
         std::error_code ec;
-        auto lock_dir = std::filesystem::u8path(lock_path).parent_path();
+        auto lock_dir = std::filesystem::path(lock_path).parent_path();
         if (!lock_dir.empty()) {
             std::filesystem::create_directories(lock_dir, ec);
             if (ec) {
-                LOG_ERR("%s: unable to create lock directory '%s': %s\n", __func__, fs_path_to_utf8(lock_dir).c_str(), ec.message().c_str());
+                LOG_ERR("%s: unable to create lock directory '%s': %s\n", __func__, lock_dir.string().c_str(), ec.message().c_str());
                 return false;
             }
         }

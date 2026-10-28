@@ -1744,10 +1744,11 @@ bool rpc_server::set_tensor(const std::vector<uint8_t> & input) {
         char hash_str[17];
         snprintf(hash_str, sizeof(hash_str), "%016" PRIx64, hash);
         // save to cache_dir/hash_str
-        fs::path cache_file = fs::path(cache_dir) / hash_str;
+        // cache_dir is UTF-8; interpret it explicitly for any host code page
+        fs::path cache_file = fs::u8path(cache_dir) / hash_str;
         std::ofstream ofs(cache_file, std::ios::binary);
         ofs.write((const char *)data, size);
-        LOG_INFO("[%s] saved to '%s'\n", __func__, cache_file.string().c_str());
+        LOG_INFO("[%s] saved to '%s/%s'\n", __func__, cache_dir, hash_str);
     }
     ggml_backend_tensor_set(tensor, data, offset, size);
     return true;
@@ -1821,7 +1822,8 @@ bool rpc_server::get_cached_file(uint64_t hash, std::vector<uint8_t> & data) {
     }
     char hash_str[17];
     snprintf(hash_str, sizeof(hash_str), "%016" PRIx64, hash);
-    fs::path cache_file = fs::path(cache_dir) / hash_str;
+    // cache_dir is UTF-8; interpret it explicitly for any host code page
+    fs::path cache_file = fs::u8path(cache_dir) / hash_str;
     std::error_code ec;
     if (!fs::exists(cache_file, ec)) {
         return false;

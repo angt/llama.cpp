@@ -104,7 +104,7 @@ int main(int argc, char ** argv) {
             const size_t  offset = gguf_get_data_offset(gguf_ctx.get()) + gguf_get_tensor_offset(gguf_ctx.get(), tid);
             GGML_ASSERT(size == gguf_get_tensor_size(gguf_ctx.get(), tid));
 
-            FILE * file = ggml_fopen(params.out_file.c_str(), "rb");
+            FILE * file = fopen(params.out_file.c_str(), "rb");
             if (file == nullptr) {
                 throw std::runtime_error("failed to open results file");
             }

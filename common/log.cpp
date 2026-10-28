@@ -398,7 +398,7 @@ public:
         }
 
         if (path) {
-            file = ggml_fopen(path, "w");
+            file = fopen(path, "w");
         } else {
             file = nullptr;
         }

@@ -88,7 +88,7 @@ cmake --build build --config Release
         cmake --preset x64-windows-llvm-release
         cmake --build build-x64-windows-llvm-release
         ```
-    - The Windows executables embed an application manifest with the UTF-8 process code page (`activeCodePage=UTF-8`) and long-path awareness (`longPathAware`). Running them requires Windows 10 version 1903 (build 18362) or newer. Unprefixed paths longer than 260 characters additionally require the `LongPathsEnabled=1` system policy, which llama.cpp does not change. The libraries (`llama`, `ggml`, `mtmd`) keep accepting UTF-8 paths from any host application and do not depend on this manifest.
+    - The Windows executables embed an application manifest with the UTF-8 process code page (`activeCodePage=UTF-8`) and long-path awareness (`longPathAware`). Running them requires Windows 10 version 1903 (build 18362) or newer. Unprefixed paths longer than 260 characters additionally require the `LongPathsEnabled=1` system policy, which llama.cpp does not change. The manifest does not extend command-line length: `CreateProcessW` still caps a command line at 32,767 UTF-16 units including the terminator, and some shells impose lower limits. The libraries (`llama`, `ggml`, `mtmd`) keep accepting UTF-8 paths from any host application and do not depend on this manifest.
 - If you want HTTPS/TLS features, you may install OpenSSL development libraries. If not installed, the project will build and run without SSL support.
   - **Debian / Ubuntu:** `sudo apt-get install libssl-dev`
   - **Fedora / RHEL / Rocky / Alma:** `sudo dnf install openssl-devel`

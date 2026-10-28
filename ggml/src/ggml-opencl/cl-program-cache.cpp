@@ -181,13 +181,38 @@ bool make_dir_recursive(const std::string & path) {
     return fs::is_directory(p, ec_stat);
 }
 
+#if defined(_WIN32)
+// a legacy-ACP host stores env values in its ANSI code page; read the value wide
+// and encode UTF-8 here so the u8path() calls below are correct for any host
+std::string getenv_utf8(const char * name) {
+    const std::wstring wname(name, name + std::strlen(name));
+    const wchar_t * raw = _wgetenv(wname.c_str());
+    if (!raw || !*raw) {
+        return {};
+    }
+    const std::wstring wvalue(raw);
+    int len = WideCharToMultiByte(CP_UTF8, 0, wvalue.c_str(), (int) wvalue.size(), nullptr, 0, nullptr, nullptr);
+    if (len <= 0) {
+        return {};
+    }
+    std::string utf8(len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wvalue.c_str(), (int) wvalue.size(), &utf8[0], len, nullptr, nullptr);
+    return utf8;
+}
+#else
+std::string getenv_utf8(const char * name) {
+    const char * value = std::getenv(name);
+    return value ? value : "";
+}
+#endif
+
 std::string default_cache_dir() {
 #if defined(_WIN32)
-    const char * base = std::getenv("LOCALAPPDATA");
-    if (!base || !*base) { base = std::getenv("APPDATA"); }
-    if (!base || !*base) { base = std::getenv("TEMP"); }
-    if (!base || !*base) { base = "."; }
-    return std::string(base) + "\\llama.cpp\\cl-cache";
+    std::string base = getenv_utf8("LOCALAPPDATA");
+    if (base.empty()) { base = getenv_utf8("APPDATA"); }
+    if (base.empty()) { base = getenv_utf8("TEMP"); }
+    if (base.empty()) { base = "."; }
+    return base + "\\llama.cpp\\cl-cache";
 #elif defined(__APPLE__)
     const char * home = std::getenv("HOME");
     if (!home || !*home) { home = "."; }
@@ -307,19 +332,17 @@ static void cache_debug_line(const char * kind, const std::string & key,
 cl_program_cache_state cl_program_cache_init(cl_device_id device) {
     cl_program_cache_state st;
 
-    const char * env = std::getenv("GGML_OPENCL_KERNEL_CACHE_DIR");
-    if (env && (!std::strcmp(env, "0")    || !std::strcmp(env, "off")  ||
-                !std::strcmp(env, "none") || !std::strcmp(env, "disable") ||
-                !std::strcmp(env, "disabled"))) {
+    const std::string env = getenv_utf8("GGML_OPENCL_KERNEL_CACHE_DIR");
+    if (env == "0" || env == "off" || env == "none" || env == "disable" || env == "disabled") {
         if (cache_debug_enabled()) {
-            fprintf(stderr, "ggml_opencl: kernel cache disabled by GGML_OPENCL_KERNEL_CACHE_DIR=%s\n", env);
+            fprintf(stderr, "ggml_opencl: kernel cache disabled by GGML_OPENCL_KERNEL_CACHE_DIR=%s\n", env.c_str());
             fflush(stderr);
         }
         return st;
     }
 
     std::string dir;
-    if (!env || !*env || !std::strcmp(env, "1") || !std::strcmp(env, "default")) {
+    if (env.empty() || env == "1" || env == "default") {
         dir = default_cache_dir();
         if (dir.empty()) {
             GGML_LOG_INFO("ggml_opencl: kernel cache disabled (no usable default cache directory)\n");

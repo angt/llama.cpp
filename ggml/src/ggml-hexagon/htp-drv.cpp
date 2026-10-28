@@ -342,7 +342,9 @@ int htpdrv_init() {
     }
     GGML_LOG_INFO("ggml-hex: Loading driver %s\n", drv_path.c_str());
 
-    fs::path path{ drv_path.c_str() };
+    // get_driver_path() returns UTF-8; interpret it explicitly so the loader
+    // gets the right path on hosts whose narrow code page is not UTF-8
+    fs::path path = fs::u8path(drv_path);
     dl_handle_ptr handle { dl_load_library(path) };
     if (!handle) {
         GGML_LOG_ERROR("ggml-hex: failed to load %s: %s\n", path.u8string().c_str(), dl_error());

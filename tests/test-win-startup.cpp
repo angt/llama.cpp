@@ -165,21 +165,26 @@ int main(int argc, char ** argv) {
         std::error_code ec;
         std::filesystem::path dir = std::filesystem::temp_directory_path() / "llama-test-win-startup";
         const std::string comp = "\xE6\xA8\xA1\xE5\x9E\x8B\xE7\x9B\xAE\xE5\xBD\x95"; // CJK, 3 bytes per char in UTF-8
-        for (int i = 0; i < 14; i++) {
-            dir /= std::filesystem::u8path(comp + std::to_string(i));
+        // grow past 260 UTF-8 bytes, counting the temporary-directory prefix
+        std::filesystem::path file;
+        for (int i = 0; ; i++) {
+            dir /= std::filesystem::path(comp + std::to_string(i));
+            file = dir / "file.txt";
+            if (file.string().size() > 260) {
+                break;
+            }
         }
         std::filesystem::create_directories(dir, ec);
         assert(!ec);
 
-        const std::string file_utf8 = fs_path_to_utf8(dir / "file.txt");
-        assert(file_utf8.size() > 260);
-        assert((dir / "file.txt").wstring().size() < 260);
+        assert(file.string().size() > 260);
+        assert(file.wstring().size() < 260);
 
         {
-            std::ofstream out(std::filesystem::u8path(file_utf8));
+            std::ofstream out(file);
             out << "hello";
         }
-        assert(std::filesystem::exists(std::filesystem::u8path(file_utf8)));
+        assert(std::filesystem::exists(file));
 
         std::filesystem::remove_all(std::filesystem::temp_directory_path() / "llama-test-win-startup", ec);
     }
@@ -187,25 +192,49 @@ int main(int argc, char ** argv) {
     {
         // absolute paths beyond MAX_PATH need LongPathsEnabled=1 on the machine: skip when the policy is off
         std::error_code ec;
-        std::filesystem::path dir = std::filesystem::temp_directory_path() / "llama-test-win-startup-long";
+        std::filesystem::path base = std::filesystem::temp_directory_path() / "llama-test-win-startup-long";
+        // a short control: if this fails the error is not about path length, and must fail the test
+        std::filesystem::create_directories(base, ec);
+        assert(!ec);
+
+        std::filesystem::path dir = base;
         for (int i = 0; i < 20; i++) {
             dir /= "component-with-a-long-name";
         }
+        assert(dir.wstring().size() > 260); // genuinely long: this is the LongPathsEnabled case
+
         std::filesystem::create_directories(dir, ec);
         if (ec) {
+            // the short base succeeded, so this refusal is the long-path policy, not a filesystem error
             printf("test-win-startup: SKIP long path test (LongPathsEnabled=1 required): %s\n", ec.message().c_str());
         } else {
-            const std::string file_utf8 = fs_path_to_utf8(dir / "file.txt");
-            assert(file_utf8.size() > 260);
+            std::filesystem::path file = dir / "file.txt";
+            assert(file.string().size() > 260);
 
-            std::ofstream out(std::filesystem::u8path(file_utf8));
+            std::ofstream out(file);
             out << "hello";
             out.close();
             assert(out.good());
-            assert(std::filesystem::exists(std::filesystem::u8path(file_utf8)));
-
-            std::filesystem::remove_all(std::filesystem::temp_directory_path() / "llama-test-win-startup-long", ec);
+            assert(std::filesystem::exists(file));
         }
+        std::filesystem::remove_all(base, ec);
+    }
+
+    {
+        // a UTF-8 environment value used as a path must round-trip through the app's env helper
+        const std::filesystem::path dir = std::filesystem::temp_directory_path() / "llama-test-win-startup-env-\xC3\xA9\xE6\xB5\x8B";
+        common_set_env("LLAMA_TEST_WIN_STARTUP_PATH", dir.string());
+        const std::filesystem::path env_dir = common_get_path_from_env("LLAMA_TEST_WIN_STARTUP_PATH");
+        assert(env_dir == dir);
+        std::error_code ec;
+        std::filesystem::create_directories(env_dir, ec);
+        assert(!ec);
+        std::ofstream out(env_dir / "file.txt");
+        out << "hello";
+        out.close();
+        assert(std::filesystem::exists(env_dir / "file.txt"));
+        common_set_env("LLAMA_TEST_WIN_STARTUP_PATH", "");
+        std::filesystem::remove_all(dir, ec);
     }
 
     printf("test-win-startup: all tests OK\n");

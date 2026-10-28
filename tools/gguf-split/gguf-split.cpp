@@ -326,7 +326,7 @@ struct split_strategy {
             // open the output file
             printf("Writing file %s ... ", split_path.c_str());
             fflush(stdout);
-            std::ofstream fout = std::ofstream(std::filesystem::u8path(split_path), std::ios::binary);
+            std::ofstream fout = std::ofstream(split_path, std::ios::binary);
             fout.exceptions(std::ofstream::failbit); // fail fast on write errors
 
             // write metadata
@@ -381,7 +381,7 @@ static void gguf_split(const split_params & split_params) {
         /*.ctx      = */ &ctx_meta,
     };
 
-    std::ifstream f_input(std::filesystem::u8path(split_params.input), std::ios::binary);
+    std::ifstream f_input(split_params.input, std::ios::binary);
     if (!f_input.is_open()) {
         fprintf(stderr, "%s:  failed to open input GGUF from %s\n", __func__, split_params.input.c_str());
         exit(EXIT_FAILURE);
@@ -419,7 +419,7 @@ static void gguf_merge(const split_params & split_params) {
     int total_tensors = 0;
 
     // avoid overwriting existing output file
-    if (std::ifstream(std::filesystem::u8path(split_params.output))) {
+    if (std::ifstream(split_params.output)) {
         fprintf(stderr, "%s: output file %s already exists\n", __func__, split_params.output.c_str());
         exit(EXIT_FAILURE);
     }
@@ -514,7 +514,7 @@ static void gguf_merge(const split_params & split_params) {
     }
     std::ofstream fout;
     if (!split_params.dry_run) {
-        fout.open(std::filesystem::u8path(split_params.output), std::ios::binary);
+        fout.open(split_params.output, std::ios::binary);
         fout.exceptions(std::ofstream::failbit); // fail fast on write errors
         // placeholder for the meta data
         auto meta_size = gguf_get_meta_size(ctx_out);
@@ -525,7 +525,7 @@ static void gguf_merge(const split_params & split_params) {
     bool merge_error = false;
     for (int i_split = 0; i_split < n_split; i_split++) {
         split_path = split_path_from_prefix(split_prefix, i_split, n_split);
-        std::ifstream f_input(std::filesystem::u8path(split_path), std::ios::binary);
+        std::ifstream f_input(split_path, std::ios::binary);
         if (!f_input.is_open()) {
             fprintf(stderr, "%s:  failed to open input GGUF from %s\n", __func__, split_path.c_str());
             for (uint32_t i = 0; i < ctx_ggufs.size(); i++) {
@@ -575,7 +575,7 @@ static void gguf_merge(const split_params & split_params) {
 
         if (!split_params.dry_run && split_params.delete_splits) {
             std::error_code ec;
-            if (!std::filesystem::remove(std::filesystem::u8path(split_path), ec)) {
+            if (!std::filesystem::remove(std::filesystem::path(split_path), ec)) {
                 merge_error = true;
                 fprintf(stderr, "error: failed to delete %s\n", split_path.c_str());
             } else {

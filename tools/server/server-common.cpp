@@ -1235,7 +1235,7 @@ void handle_media(
             throw std::invalid_argument("file path is not allowed: " + file_path);
         }
         SRV_INF("loading image from local file '%s'\n", (media_path + file_path).c_str());
-        std::ifstream file(std::filesystem::u8path(media_path + file_path), std::ios::binary);
+        std::ifstream file(media_path + file_path, std::ios::binary);
         if (!file) {
             throw std::invalid_argument("file does not exist or cannot be opened: " + file_path);
         }

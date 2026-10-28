@@ -337,6 +337,12 @@ if (WIN32)
         endif()
     endforeach()
     llama_test(test-win-startup LABEL behavior ARGS ${TEST_WIN_MANIFEST_EXES})
+
+    # external-host test: the library must accept UTF-8 paths from a host without our manifest
+    llama_build(test-external-host.cpp LINK ggml)
+    # keep this one unmanifested so it runs in the system (legacy) code page
+    set_target_properties(test-external-host PROPERTIES LLAMA_WIN_APP_NO_MANIFEST TRUE)
+    llama_test(test-external-host LABEL behavior)
 endif()
 
 if (NOT LLAMA_SANITIZE_ADDRESS AND NOT GGML_SCHED_NO_REALLOC)
