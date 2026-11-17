@@ -530,7 +530,7 @@ static fs::path resolve_blob_path(const fs::path & repo_path, const fs::path & s
     }
 
     // HF blobs are direct children of the repository's blobs directory
-    if (blob_path.parent_path() != blobs_path) {
+    if (!for_reference && blob_path.parent_path() != blobs_path) {
         return {};
     }
     return blob_path;
@@ -589,6 +589,9 @@ bool remove_cached_files(const std::string & repo_id, const hf_files & files) {
             if (!blob.empty()) {
                 still_referenced.insert(blob.string());
             }
+        }
+        if (ec) {
+            break;
         }
     }
     if (ec) {

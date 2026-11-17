@@ -586,6 +586,27 @@ static void test_sidecar_removal() {
     }
     fs::remove_all(cache_dir / "models--test--blob-alias");
 
+    const fs::path blob_link = cache_put("test/linked-blob", "dflash-model-Q4_0.gguf");
+    if (!blob_link.empty()) {
+        const fs::path external_blob = cache_dir / "external-blob.gguf";
+        fs::rename(blob_link, external_blob);
+        fs::create_symlink(external_blob, blob_link, ec);
+        REQUIRE(!ec);
+
+        const fs::path other = cached("test/linked-blob", "mtp-model-Q4_0.gguf");
+        fs::create_symlink(fs::relative(blob_link, other.parent_path()), other, ec);
+        REQUIRE(!ec);
+
+        hf_cache::hf_files files(1);
+        files[0].local_path = cached("test/linked-blob", "dflash-model-Q4_0.gguf");
+        REQUIRE(hf_cache::remove_cached_files("test/linked-blob", files));
+        REQUIRE(fs::is_symlink(blob_link));
+        REQUIRE(fs::exists(other));
+        REQUIRE(fs::exists(external_blob));
+    }
+    fs::remove_all(cache_dir / "models--test--linked-blob");
+    fs::remove(cache_dir / "external-blob.gguf");
+
 #ifndef _WIN32
     if (geteuid() != 0) {
         const fs::path local = cached("test/unwritable", "model-Q4_0.gguf");
@@ -609,6 +630,45 @@ static void test_sidecar_removal() {
             if (!unwritable_blob.empty()) {
                 REQUIRE(fs::exists(unwritable_blob));
             }
+        }
+
+        for (const bool nested : { false, true }) {
+            const std::string repo_id = nested ? "test/unreadable-subdir" : "test/unreadable-revision";
+            const fs::path repo = cache_dir / (nested ? "models--test--unreadable-subdir" : "models--test--unreadable-revision");
+            const fs::path scan_blob = cache_put(repo_id, "dflash-model-Q4_0.gguf");
+            if (!scan_blob.empty()) {
+                fs::path denied_path = repo / "snapshots" / "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+                if (nested) {
+                    denied_path /= "nested";
+                }
+                fs::create_directories(denied_path);
+
+                const fs::path older = denied_path / "mtp-model-Q4_0.gguf";
+                fs::create_symlink(fs::relative(scan_blob, older.parent_path()), older, ec);
+                REQUIRE(!ec);
+
+                hf_cache::hf_files files(1);
+                files[0].local_path = cached(repo_id, "dflash-model-Q4_0.gguf");
+
+                fs::permissions(denied_path, fs::perms::none, fs::perm_options::replace, ec);
+                REQUIRE(!ec);
+                fs::directory_iterator(denied_path, ec);
+                const bool denied = ec == std::errc::permission_denied;
+
+                bool removed = false;
+                if (denied) {
+                    removed = hf_cache::remove_cached_files(repo_id, files);
+                }
+                fs::permissions(denied_path, fs::perms::owner_all, fs::perm_options::replace, ec);
+                REQUIRE(!ec);
+
+                if (denied) {
+                    REQUIRE(removed);
+                    REQUIRE(fs::exists(scan_blob));
+                    REQUIRE(fs::exists(older));
+                }
+            }
+            fs::remove_all(repo);
         }
     }
     fs::remove_all(cache_dir / "models--test--unwritable");
