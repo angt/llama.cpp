@@ -508,21 +508,37 @@ std::string finalize_file(const hf_file & file, const std::function<bool()> & ke
     return file.final_path;
 }
 
+static fs::path resolve_blob_path(const fs::path & repo_path, const fs::path & snapshot_path) {
+    std::error_code ec;
+    const fs::path target = fs::read_symlink(snapshot_path, ec);
+    if (ec) {
+        return {};
+    }
+
+    const fs::path blobs_path = fs::absolute(repo_path / "blobs").lexically_normal();
+    const fs::path blob_path = fs::absolute(snapshot_path.parent_path() / target).lexically_normal();
+
+    // HF blobs are direct children of the repository's blobs directory
+    if (blob_path.parent_path() != blobs_path) {
+        return {};
+    }
+    return blob_path;
+}
+
 bool remove_cached_files(const std::string & repo_id, const hf_files & files) {
+    const fs::path repo_path = get_repo_path(repo_id);
+
     std::vector<fs::path> to_remove;
     for (const auto & f : files) {
-        to_remove.emplace_back(fs::u8path(f.local_path));
+        to_remove.emplace_back(f.local_path);
     }
 
     // resolve blob paths from symlinks before deleting snapshot entries
     std::vector<fs::path> blobs_to_check;
     for (const auto & p : to_remove) {
-        std::error_code ec;
-        if (fs::is_symlink(p, ec)) {
-            auto target = fs::read_symlink(p, ec);
-            if (!ec) {
-                blobs_to_check.push_back((p.parent_path() / target).lexically_normal());
-            }
+        const fs::path blob = resolve_blob_path(repo_path, p);
+        if (!blob.empty()) {
+            blobs_to_check.push_back(blob);
         }
     }
 
@@ -539,16 +555,12 @@ bool remove_cached_files(const std::string & repo_id, const hf_files & files) {
         return true;
     }
 
-    // collect blobs still referenced by remaining snapshot entries
+    // collect blobs still referenced by any remaining snapshot entry
     std::unordered_set<std::string> still_referenced;
-    for (const auto & f : get_cached_files(repo_id)) {
-        fs::path p(f.local_path);
-        std::error_code ec;
-        if (fs::is_symlink(p, ec)) {
-            auto target = fs::read_symlink(p, ec);
-            if (!ec) {
-                still_referenced.insert((p.parent_path() / target).lexically_normal().string());
-            }
+    for (const auto & entry : fs::recursive_directory_iterator(repo_path / "snapshots")) {
+        const fs::path blob = resolve_blob_path(repo_path, entry.path());
+        if (!blob.empty()) {
+            still_referenced.insert(blob.string());
         }
     }
 

@@ -483,6 +483,49 @@ static void test_sidecar_removal() {
         REQUIRE(!fs::exists(other));
     }
     fs::remove_all(cache_dir / "models--test--blobs");
+
+    const fs::path external = cache_dir / "external.gguf";
+    { std::ofstream(external) << "gguf"; }
+
+    const fs::path local = cached("test/external", "dflash-model-Q4_0.gguf");
+    fs::create_directories(local.parent_path());
+    std::error_code ec;
+    fs::create_symlink(external, local, ec);
+    if (!ec) {
+        const fs::path ref = cache_dir / "models--test--external" / "refs" / "main";
+        fs::create_directories(ref.parent_path());
+        std::ofstream(ref) << COMMIT << "\n";
+
+        hf_cache::hf_files files(1);
+        files[0].local_path = local.string();
+        REQUIRE(hf_cache::remove_cached_files("test/external", files));
+        REQUIRE(!fs::exists(local));
+        REQUIRE(fs::exists(external));
+    }
+    fs::remove_all(cache_dir / "models--test--external");
+    fs::remove(external);
+
+    const fs::path revision_blob = cache_put("test/revisions", "model-Q4_0.gguf");
+    if (!revision_blob.empty()) {
+        const std::string old_commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const fs::path older = cache_dir / "models--test--revisions" / "snapshots" / old_commit / "model-Q4_0.gguf";
+        fs::create_directories(older.parent_path());
+        fs::create_symlink(fs::relative(revision_blob, older.parent_path()), older, ec);
+        REQUIRE(!ec);
+
+        // refs/main selects COMMIT, but the older revision keeps the blob alive
+        hf_cache::hf_files files(1);
+        files[0].local_path = cached("test/revisions", "model-Q4_0.gguf");
+        REQUIRE(hf_cache::remove_cached_files("test/revisions", files));
+        REQUIRE(fs::exists(revision_blob));
+        REQUIRE(fs::exists(older));
+
+        files[0].local_path = older.string();
+        REQUIRE(hf_cache::remove_cached_files("test/revisions", files));
+        REQUIRE(!fs::exists(revision_blob));
+        REQUIRE(!fs::exists(older));
+    }
+    fs::remove_all(cache_dir / "models--test--revisions");
 }
 
 //
