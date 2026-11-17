@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <stdexcept>
+#include <unordered_set>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -505,6 +506,64 @@ std::string finalize_file(const hf_file & file, const std::function<bool()> & ke
         }
     }
     return file.final_path;
+}
+
+bool remove_cached_files(const std::string & repo_id, const hf_files & files) {
+    std::vector<fs::path> to_remove;
+    for (const auto & f : files) {
+        to_remove.emplace_back(fs::u8path(f.local_path));
+    }
+
+    // resolve blob paths from symlinks before deleting snapshot entries
+    std::vector<fs::path> blobs_to_check;
+    for (const auto & p : to_remove) {
+        std::error_code ec;
+        if (fs::is_symlink(p, ec)) {
+            auto target = fs::read_symlink(p, ec);
+            if (!ec) {
+                blobs_to_check.push_back((p.parent_path() / target).lexically_normal());
+            }
+        }
+    }
+
+    // remove snapshot entries
+    for (const auto & p : to_remove) {
+        std::error_code ec;
+        fs::remove(p, ec);
+        if (ec) {
+            LOG_WRN("%s: failed to remove %s: %s\n", __func__, p.string().c_str(), ec.message().c_str());
+        }
+    }
+
+    if (blobs_to_check.empty()) {
+        return true;
+    }
+
+    // collect blobs still referenced by remaining snapshot entries
+    std::unordered_set<std::string> still_referenced;
+    for (const auto & f : get_cached_files(repo_id)) {
+        fs::path p(f.local_path);
+        std::error_code ec;
+        if (fs::is_symlink(p, ec)) {
+            auto target = fs::read_symlink(p, ec);
+            if (!ec) {
+                still_referenced.insert((p.parent_path() / target).lexically_normal().string());
+            }
+        }
+    }
+
+    // remove orphaned blobs
+    for (const auto & blob : blobs_to_check) {
+        if (still_referenced.find(blob.string()) == still_referenced.end()) {
+            std::error_code ec;
+            fs::remove(blob, ec);
+            if (ec) {
+                LOG_WRN("%s: failed to remove blob %s: %s\n", __func__, blob.string().c_str(), ec.message().c_str());
+            }
+        }
+    }
+
+    return true;
 }
 
 bool remove_cached_repo(const std::string & repo_id) {

@@ -366,18 +366,32 @@ static void test_plan_resolution() {
 }
 
 // put a file in the cache the way a finished download leaves it, refs/main included
-static void cache_put(const std::string & repo_id, const std::string & path) {
+// return its blob when symlinks are available, an empty path otherwise
+static std::filesystem::path cache_put(const std::string & repo_id, const std::string & path, bool use_symlink = true) {
     namespace fs = std::filesystem;
 
     const fs::path local = cached(repo_id, path);
-    fs::create_directories(local.parent_path());
-    { std::ofstream(local) << "gguf"; }
+    const fs::path repo = local.parent_path().parent_path().parent_path();
+    const fs::path blob = repo / "blobs" / path;
+    fs::create_directories(blob.parent_path());
+    { std::ofstream(blob) << "gguf"; }
 
-    const fs::path ref = local.parent_path().parent_path().parent_path() / "refs" / "main";
+    fs::create_directories(local.parent_path());
+    std::error_code ec;
+    if (use_symlink) {
+        fs::create_symlink(fs::relative(blob, local.parent_path()), local, ec);
+    }
+    if (!use_symlink || ec) {
+        fs::rename(blob, local, ec);
+        REQUIRE(!ec);
+    }
+
+    const fs::path ref = repo / "refs" / "main";
     fs::create_directories(ref.parent_path());
     if (!fs::exists(ref)) {
         std::ofstream(ref) << COMMIT << "\n";
     }
+    return use_symlink && fs::is_symlink(local) ? blob : fs::path{};
 }
 
 //
@@ -441,6 +455,34 @@ static void test_sidecar_removal() {
     REQUIRE(!common_download_remove_sidecars("test/sidecar:Q4_0", opts));
 
     fs::remove_all(cache_dir / "models--test--sidecar");
+
+    cache_put("test/no-symlink", "model-Q4_0.gguf", false);
+    cache_put("test/no-symlink", "dflash-model-Q4_0.gguf", false);
+    REQUIRE(common_download_remove_sidecars("test/no-symlink:Q4_0", opts));
+    REQUIRE(fs::exists(cached("test/no-symlink", "model-Q4_0.gguf")));
+    REQUIRE(!fs::exists(cached("test/no-symlink", "dflash-model-Q4_0.gguf")));
+    fs::remove_all(cache_dir / "models--test--no-symlink");
+
+    const fs::path blob = cache_put("test/blobs", "dflash-model-Q4_0.gguf");
+    if (!blob.empty()) {
+        const fs::path other = cached("test/blobs", "mtp-model-Q4_0.gguf");
+        fs::create_directories(other.parent_path());
+        std::error_code ec;
+        fs::create_symlink(fs::relative(blob, other.parent_path()), other, ec);
+        REQUIRE(!ec);
+
+        // only the last snapshot reference removes the blob
+        REQUIRE(common_download_remove_sidecars("test/blobs:Q4_0", opts));
+        REQUIRE(fs::exists(blob));
+        REQUIRE(fs::exists(other));
+
+        opts.download_dflash = false;
+        opts.download_mtp    = true;
+        REQUIRE(common_download_remove_sidecars("test/blobs:Q4_0", opts));
+        REQUIRE(!fs::exists(blob));
+        REQUIRE(!fs::exists(other));
+    }
+    fs::remove_all(cache_dir / "models--test--blobs");
 }
 
 //
@@ -460,8 +502,20 @@ static void test_shared_removal() {
         cache_put("test/shared", f);
     }
 
-    // the BF16 model goes, the mmproj and the mtp Q8_0 resolves stay
+    // the BF16 model and its blob go, the mmproj and the mtp Q8_0 resolves stay
+    fs::path blob;
+    for (const auto & f : hf_cache::get_cached_files("test/shared")) {
+        if (f.path == "model-BF16.gguf" && fs::is_symlink(f.local_path)) {
+            std::error_code ec;
+            blob = fs::read_symlink(f.local_path, ec);
+            REQUIRE(!ec);
+            blob = (fs::path(f.local_path).parent_path() / blob).lexically_normal();
+        }
+    }
     REQUIRE(common_download_remove("test/shared:BF16"));
+    if (!blob.empty()) {
+        REQUIRE(!fs::exists(blob));
+    }
     REQUIRE(!fs::exists(cached("test/shared", "model-BF16.gguf")));
     REQUIRE(fs::exists(cached("test/shared", "mmproj-model-BF16.gguf")));
     REQUIRE(fs::exists(cached("test/shared", "mtp-model-BF16.gguf")));
