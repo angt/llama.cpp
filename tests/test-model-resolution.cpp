@@ -21,6 +21,10 @@
 #include <string>
 #include <vector>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 // the case and reordering being checked, printed with every failure
 static std::string g_context;
 
@@ -481,6 +485,7 @@ static void test_sidecar_removal() {
         REQUIRE(common_download_remove_sidecars("test/blobs:Q4_0", opts));
         REQUIRE(!fs::exists(blob));
         REQUIRE(!fs::exists(other));
+        REQUIRE(!fs::is_symlink(other));
     }
     fs::remove_all(cache_dir / "models--test--blobs");
 
@@ -500,6 +505,7 @@ static void test_sidecar_removal() {
         files[0].local_path = local.string();
         REQUIRE(hf_cache::remove_cached_files("test/external", files));
         REQUIRE(!fs::exists(local));
+        REQUIRE(!fs::is_symlink(local));
         REQUIRE(fs::exists(external));
     }
     fs::remove_all(cache_dir / "models--test--external");
@@ -524,8 +530,89 @@ static void test_sidecar_removal() {
         REQUIRE(hf_cache::remove_cached_files("test/revisions", files));
         REQUIRE(!fs::exists(revision_blob));
         REQUIRE(!fs::exists(older));
+        REQUIRE(!fs::is_symlink(older));
     }
     fs::remove_all(cache_dir / "models--test--revisions");
+
+    const fs::path linked_blob = cache_put("test/linked-revision", "dflash-model-Q4_0.gguf");
+    if (!linked_blob.empty()) {
+        const fs::path repo = cache_dir / "models--test--linked-revision";
+        const fs::path revision = repo / "snapshots" / COMMIT;
+        const fs::path real_revision = repo / "revisions" / COMMIT;
+        fs::create_directories(real_revision.parent_path());
+        fs::rename(revision, real_revision);
+        fs::create_directory_symlink(real_revision, revision, ec);
+        REQUIRE(!ec);
+
+        const fs::path other = cached("test/linked-revision", "mtp-model-Q4_0.gguf");
+        fs::create_symlink(fs::relative(linked_blob, other.parent_path()), other, ec);
+        REQUIRE(!ec);
+
+        hf_cache::hf_files files(1);
+        files[0].local_path = cached("test/linked-revision", "dflash-model-Q4_0.gguf");
+        REQUIRE(hf_cache::remove_cached_files("test/linked-revision", files));
+        REQUIRE(fs::exists(linked_blob));
+        REQUIRE(fs::exists(other));
+
+        files[0].local_path = other.string();
+        REQUIRE(hf_cache::remove_cached_files("test/linked-revision", files));
+        REQUIRE(!fs::exists(linked_blob));
+        REQUIRE(!fs::is_symlink(other));
+    }
+    fs::remove_all(cache_dir / "models--test--linked-revision");
+
+    const fs::path alias_blob = cache_put("test/blob-alias", "model-Q4_0.gguf");
+    if (!alias_blob.empty()) {
+        const fs::path repo = cache_dir / "models--test--blob-alias";
+        const fs::path alias = repo / "blob-alias";
+        fs::create_directory_symlink("blobs", alias, ec);
+        REQUIRE(!ec);
+
+        const fs::path other = cached("test/blob-alias", "mtp-model-Q4_0.gguf");
+        fs::create_symlink(fs::path("../../blob-alias") / alias_blob.filename(), other, ec);
+        REQUIRE(!ec);
+
+        hf_cache::hf_files files(1);
+        files[0].local_path = cached("test/blob-alias", "model-Q4_0.gguf");
+        REQUIRE(hf_cache::remove_cached_files("test/blob-alias", files));
+        REQUIRE(fs::exists(alias_blob));
+        REQUIRE(!fs::is_symlink(files[0].local_path));
+        REQUIRE(fs::exists(other));
+
+        files[0].local_path = other.string();
+        REQUIRE(hf_cache::remove_cached_files("test/blob-alias", files));
+        REQUIRE(fs::exists(alias_blob));
+        REQUIRE(!fs::is_symlink(other));
+    }
+    fs::remove_all(cache_dir / "models--test--blob-alias");
+
+#ifndef _WIN32
+    if (geteuid() != 0) {
+        const fs::path local = cached("test/unwritable", "model-Q4_0.gguf");
+        const fs::path unwritable_blob = cache_put("test/unwritable", "model-Q4_0.gguf");
+
+        fs::permissions(local.parent_path(), fs::perms::owner_write, fs::perm_options::remove, ec);
+        REQUIRE(!ec);
+        const bool unwritable = fs::remove(local, ec) == false && ec == std::errc::permission_denied;
+        fs::permissions(local.parent_path(), fs::perms::owner_write, fs::perm_options::add, ec);
+        REQUIRE(!ec);
+
+        if (unwritable) {
+            fs::permissions(local.parent_path(), fs::perms::owner_write, fs::perm_options::remove, ec);
+            REQUIRE(!ec);
+
+            const bool removed = common_download_remove("test/unwritable:Q4_0");
+            fs::permissions(local.parent_path(), fs::perms::owner_write, fs::perm_options::add, ec);
+            REQUIRE(!ec);
+            REQUIRE(!removed);
+            REQUIRE(fs::exists(local));
+            if (!unwritable_blob.empty()) {
+                REQUIRE(fs::exists(unwritable_blob));
+            }
+        }
+    }
+    fs::remove_all(cache_dir / "models--test--unwritable");
+#endif
 }
 
 //
@@ -556,10 +643,12 @@ static void test_shared_removal() {
         }
     }
     REQUIRE(common_download_remove("test/shared:BF16"));
+    const fs::path model = cached("test/shared", "model-BF16.gguf");
     if (!blob.empty()) {
         REQUIRE(!fs::exists(blob));
+        REQUIRE(!fs::is_symlink(model));
     }
-    REQUIRE(!fs::exists(cached("test/shared", "model-BF16.gguf")));
+    REQUIRE(!fs::exists(model));
     REQUIRE(fs::exists(cached("test/shared", "mmproj-model-BF16.gguf")));
     REQUIRE(fs::exists(cached("test/shared", "mtp-model-BF16.gguf")));
     REQUIRE(fs::exists(cached("test/shared", "model-Q8_0.gguf")));
@@ -572,9 +661,11 @@ static void test_shared_removal() {
     }
 
     REQUIRE(common_download_remove("test/alone:BF16"));
-    REQUIRE(!fs::exists(cached("test/alone", "model-BF16.gguf")));
-    REQUIRE(!fs::exists(cached("test/alone", "mmproj-model-BF16.gguf")));
-    REQUIRE(!fs::exists(cached("test/alone", "mtp-model-BF16.gguf")));
+    for (const char * f : { "model-BF16.gguf", "mmproj-model-BF16.gguf", "mtp-model-BF16.gguf" }) {
+        const fs::path local = cached("test/alone", f);
+        REQUIRE(!fs::exists(local));
+        REQUIRE(!fs::is_symlink(local));
+    }
     REQUIRE(!common_download_remove("test/alone:BF16"));
 
     fs::remove_all(cache_dir / "models--test--alone");
