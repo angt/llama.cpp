@@ -5,6 +5,7 @@
 #include "../tools/server/server-decision.h"
 #include "../tools/server/server-schema.h"
 #include "../tools/server/server-slot-sched.h"
+#include "../tools/server/server-task.h"
 
 #include <algorithm>
 #include <cmath>
@@ -863,6 +864,55 @@ static void test_glob_match(testing & t) {
     });
 }
 
+static void test_asr_text_filter(testing & t) {
+    auto response = [](const std::string & input, bool stream) {
+        task_result_state state;
+        std::string output;
+        if (stream) {
+            for (size_t i = 0; i < input.size(); i++) {
+                server_task_result_cmpl_partial partial{};
+                partial.res_type = TASK_RESPONSE_TYPE_OAI_ASR;
+                partial.content.text = input.substr(i, 1);
+                partial.update(state);
+                output += partial.to_json_oaicompat_asr().at("delta").get<std::string>();
+            }
+        }
+        server_task_result_cmpl_final final{};
+        final.res_type = TASK_RESPONSE_TYPE_OAI_ASR;
+        final.content.text = stream ? "" : input;
+        final.update(state);
+        output += final.to_json_oaicompat_asr().at("text").get<std::string>();
+        return output;
+    };
+
+    const std::string input = "language English<asr_text>Hello world.";
+    t.assert_equal("complete preamble", std::string("Hello world."), response(input, false));
+    t.assert_equal("fragmented preamble", std::string("Hello world."), response(input, true));
+
+    const std::string marker_text = "Hello <asr_text> world";
+    t.assert_equal("marker in plain text", marker_text, response(marker_text, false));
+    t.assert_equal("marker in streamed text", marker_text, response(marker_text, true));
+
+    const std::string language_text = "languages English<asr_text>Hello";
+    t.assert_equal("invalid language prefix", language_text, response(language_text, false));
+    t.assert_equal("streamed invalid language prefix", language_text, response(language_text, true));
+
+    const std::string later_marker = "language English<asr_text>Use <asr_text> literally.";
+    t.assert_equal("later marker is text", std::string("Use <asr_text> literally."), response(later_marker, true));
+
+    t.assert_equal("plain text", std::string("plain text"), response("plain text", true));
+    t.assert_equal("unfinished prefix", std::string("lang"), response("lang", true));
+
+    const std::string long_text = "language " + std::string(50, 'a');
+    t.assert_equal("long plain text", long_text, response(long_text, true));
+
+    const std::string long_marker = "language " + std::string(40, 'a') + "<asr_text>Hello";
+    t.assert_equal("long preamble", std::string("Hello"), response(long_marker, true));
+
+    const std::string newline_text = "language is important\n<asr_text>Hello";
+    t.assert_equal("newline before marker", newline_text, response(newline_text, true));
+}
+
 //
 // OpenAI speech API
 //
@@ -963,6 +1013,7 @@ int main(int argc, char ** argv) {
     t.test("glob_match",      test_glob_match);
     t.test("dry_sequence_breakers", test_dry_sequence_breakers);
     t.test("stop_strings",    test_stop_strings);
+    t.test("asr_text_filter", test_asr_text_filter);
     t.test("speech_convert",  test_speech_convert);
     t.test("pcm_f32_to_s16",  test_pcm_f32_to_s16);
 

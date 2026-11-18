@@ -118,6 +118,15 @@ const char * get_media_marker();
 // float samples to signed 16-bit PCM bytes, clamped to [-1, 1]
 std::string pcm_f32_to_s16(const float * samples, size_t n);
 
+// removes the language preamble ending in <asr_text>, also when split across chunks
+struct server_asr_text_filter {
+    std::string process(const std::string & delta, bool is_partial = false);
+
+private:
+    std::string text;
+    bool        preamble_done = false;
+};
+
 //
 // model output modalities
 //

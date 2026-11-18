@@ -719,7 +719,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
 json server_task_result_cmpl_final::to_json_oaicompat_asr() {
     json event = json {
         {"type",  "transcript.text.done"},
-        {"text",  oaicompat_msg.content},
+        {"text",  content.text},
         {"usage", json {
             {"type",         "tokens"},
             {"input_tokens",  n_prompt_tokens},
@@ -992,6 +992,9 @@ void server_task_result_cmpl_partial::update(task_result_state & state) {
     is_updated = true;
     if (is_begin) {
         return; // begin marker only flushes headers, skip parsing
+    }
+    if (res_type == TASK_RESPONSE_TYPE_OAI_ASR) {
+        content.text = state.asr_filter.process(content.text, true);
     }
     state.update_chat_msg(content, true, oaicompat_msg_diffs);
 

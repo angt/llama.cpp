@@ -138,6 +138,7 @@ struct task_result_state {
     std::vector<common_chat_msg_diff> diffs;
     common_chat_session chat_session; // owns all parsing for this generation
     common_chat_msg chat_msg;
+    server_asr_text_filter asr_filter;
     std::vector<std::string> generated_tool_call_ids;
     std::unordered_set<size_t> sent_tool_call_names;
 
@@ -452,6 +453,9 @@ struct server_task_result_cmpl_final : server_task_result {
 
     virtual void update(task_result_state & state) override {
         is_updated = true;
+        if (res_type == TASK_RESPONSE_TYPE_OAI_ASR) {
+            content.text = state.asr_filter.process(content.text);
+        }
         oaicompat_msg = state.update_chat_msg(content, false, oaicompat_msg_diffs);
 
         oai_resp_id = state.oai_resp_id;

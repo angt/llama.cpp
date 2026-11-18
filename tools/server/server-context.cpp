@@ -6161,9 +6161,20 @@ void server_routes::init_routes() {
         std::string item_id = "item_" + random_string();
         std::string item_prev; // the committed item before item_id, empty for the first one
         std::string item_text;
+        server_asr_text_filter asr_filter;
 
         // called with mutex_item held
         auto send_completed = [&]() {
+            const std::string delta = asr_filter.process("");
+            if (!delta.empty()) {
+                item_text += delta;
+                send_event(json {
+                    {"type",          "conversation.item.input_audio_transcription.delta"},
+                    {"item_id",       item_id},
+                    {"content_index", 0},
+                    {"delta",         delta},
+                });
+            }
             send_event(json {
                 {"type",          "conversation.item.input_audio_transcription.completed"},
                 {"item_id",       item_id},
@@ -6171,6 +6182,7 @@ void server_routes::init_routes() {
                 {"transcript",    item_text},
             });
             item_text.clear();
+            asr_filter = {};
         };
 
         auto post_control = [&](server_control_action action, std::vector<float> && audio) {
@@ -6302,13 +6314,16 @@ void server_routes::init_routes() {
                     item_id   = "item_" + random_string();
                 } else if (!partial->content.text.empty()) {
                     std::lock_guard<std::mutex> lock(mutex_item);
-                    item_text += partial->content.text;
-                    send_event(json {
-                        {"type",          "conversation.item.input_audio_transcription.delta"},
-                        {"item_id",       item_id},
-                        {"content_index", 0},
-                        {"delta",         partial->content.text},
-                    });
+                    const std::string delta = asr_filter.process(partial->content.text, true);
+                    if (!delta.empty()) {
+                        item_text += delta;
+                        send_event(json {
+                            {"type",          "conversation.item.input_audio_transcription.delta"},
+                            {"item_id",       item_id},
+                            {"content_index", 0},
+                            {"delta",         delta},
+                        });
+                    }
                 }
             } else if (result->is_stop()) {
                 std::lock_guard<std::mutex> lock(mutex_item);

@@ -139,6 +139,32 @@ json format_error_response(const std::string & message, const enum error_type ty
     };
 }
 
+std::string server_asr_text_filter::process(const std::string & delta, bool is_partial) {
+    static const std::string marker = "<asr_text>";
+
+    if (preamble_done) {
+        return delta;
+    }
+
+    text += delta;
+    const bool has_language = text.compare(0, 9, "language ") == 0;
+    const bool maybe_language = std::string("language ").compare(0, text.size(), text) == 0;
+    if (has_language) {
+        const size_t pos = text.find(marker);
+        if (pos != std::string::npos) {
+            preamble_done = true;
+            return text.substr(pos + marker.size());
+        }
+    }
+    const bool maybe_preamble = text.empty() || maybe_language || (has_language && text.find('\n') == std::string::npos);
+    if (is_partial && maybe_preamble) {
+        return "";
+    }
+
+    preamble_done = true;
+    return text;
+}
+
 //
 // server_slot_stats
 //
